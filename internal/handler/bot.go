@@ -567,6 +567,20 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			b.notifyCustomerStatus(id, status, msg)
 		}
 
+	case "ophoto": // фото готового букета → клиенту
+		id := argAt(1)
+		o, err := b.repo.GetOrder(id)
+		if err != nil {
+			b.send(chatID, "Заказ не найден.")
+			return
+		}
+		if o.User.TelegramID == 0 {
+			b.send(chatID, "У клиента нет Telegram ID (заказ оформлен вне Telegram) — фото отправить некому.")
+			return
+		}
+		b.wizards[chatID] = &wizard{mode: "order_photo", orderID: id}
+		b.send(chatID, fmt.Sprintf("📷 Пришлите фото букета для заказа #%d — я отправлю его клиенту. /cancel — отмена.", id))
+
 	case "ostmenu": // выбор статуса
 		id := argAt(1)
 		var rows [][]tgbotapi.InlineKeyboardButton
@@ -640,22 +654,27 @@ func (b *Bot) sendOrderList(chatID int64) {
 	b.sendKb(chatID, "Последние заказы:", tgbotapi.NewInlineKeyboardMarkup(rows...))
 }
 
+// orderKeyboard — общая клавиатура карточки заказа (детали и уведомление о новом).
+func orderKeyboard(o *model.Order) tgbotapi.InlineKeyboardMarkup {
+	return tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Подтвердить", fmt.Sprintf("ost:%d:%s", o.ID, model.StatusConfirmed)),
+			tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", fmt.Sprintf("ost:%d:%s", o.ID, model.StatusCancelled)),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📷 Фото букета", fmt.Sprintf("ophoto:%d", o.ID)),
+			tgbotapi.NewInlineKeyboardButtonData("🔄 Статус", fmt.Sprintf("ostmenu:%d", o.ID)),
+		),
+	)
+}
+
 func (b *Bot) sendOrderDetails(chatID int64, id uint) {
 	o, err := b.repo.GetOrder(id)
 	if err != nil {
 		b.send(chatID, "Заказ не найден.")
 		return
 	}
-	kb := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("✅ Подтвердить", fmt.Sprintf("ost:%d:%s", o.ID, model.StatusConfirmed)),
-			tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", fmt.Sprintf("ost:%d:%s", o.ID, model.StatusCancelled)),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Изменить статус", fmt.Sprintf("ostmenu:%d", o.ID)),
-		),
-	)
-	b.sendKb(chatID, formatOrder(o, false), kb)
+	b.sendKb(chatID, formatOrder(o, false), orderKeyboard(o))
 }
 
 // NotifyNewOrder шлёт админу уведомление о новом заказе.
@@ -663,16 +682,7 @@ func (b *Bot) NotifyNewOrder(o *model.Order) {
 	if b.adminChatID == 0 {
 		return
 	}
-	kb := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("✅ Подтвердить", fmt.Sprintf("ost:%d:%s", o.ID, model.StatusConfirmed)),
-			tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", fmt.Sprintf("ost:%d:%s", o.ID, model.StatusCancelled)),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Изменить статус", fmt.Sprintf("ostmenu:%d", o.ID)),
-		),
-	)
-	b.sendKb(b.adminChatID, formatOrder(o, true), kb)
+	b.sendKb(b.adminChatID, formatOrder(o, true), orderKeyboard(o))
 }
 
 func formatOrder(o *model.Order, isNew bool) string {
@@ -748,17 +758,22 @@ func (b *Bot) sendBouquetPhoto(chatID int64, orderID uint, fileID string) {
 	}
 
 	// Отправляем фото клиенту (по его TelegramID).
-	if o.User.TelegramID != 0 {
-		photo := tgbotapi.NewPhoto(o.User.TelegramID, tgbotapi.FileID(fileID))
-		photo.Caption = fmt.Sprintf("🌸 Ваш букет к заказу #%d готов!", o.ID)
-		if _, err := b.api.Send(photo); err != nil {
-			log.Printf("send photo to customer: %v", err)
-			b.send(chatID, "Не удалось отправить фото клиенту.")
-			return
-		}
+	if o.User.TelegramID == 0 {
+		b.send(chatID, "У клиента нет Telegram ID — фото отправить некому.")
+		return
+	}
+	photo := tgbotapi.NewPhoto(o.User.TelegramID, tgbotapi.FileID(fileID))
+	photo.Caption = fmt.Sprintf("🌸 Ваш букет к заказу #%d готов!", o.ID)
+	if _, err := b.api.Send(photo); err != nil {
+		log.Printf("send photo to customer: %v", err)
+		b.send(chatID, "Не удалось отправить фото клиенту (возможно, он не запускал бота).")
+		return
 	}
 
-	b.send(chatID, fmt.Sprintf("✅ Фото букета отправлено клиенту заказа #%d.", o.ID))
+	if err := b.repo.UpdateOrderStatus(o.ID, model.StatusPhotoSent); err != nil {
+		log.Printf("update status after photo: %v", err)
+	}
+	b.send(chatID, fmt.Sprintf("✅ Фото отправлено клиенту, заказ #%d → %s.", o.ID, model.StatusLabels[model.StatusPhotoSent]))
 }
 
 // notifyCustomerStatus — отправляет клиенту уведомление о смене статуса заказа.
