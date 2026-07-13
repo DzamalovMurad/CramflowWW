@@ -1,0 +1,15 @@
+# Go
+/cramflow
+/bin/
+
+# Frontend
+web/node_modules/
+web/dist/
+
+# Runtime
+/uploads/
+.env
+
+# Misc
+*.log
+.DS_Store

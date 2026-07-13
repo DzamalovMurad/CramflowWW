@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Дизайн-токены. Тёмная тема включается через data-theme="dark"
+   (выставляется из Telegram.WebApp.colorScheme, см. telegram.ts). */
+:root {
+  --c-bg: #ffffff;
+  --c-surface: #ffffff;
+  --c-text: #111111;
+  --c-muted: #7a7a7a;
+  --c-border: #ededed;
+}
+
+:root[data-theme='dark'] {
+  --c-bg: #101010;
+  --c-surface: #1a1a1a;
+  --c-text: #f2f2f2;
+  --c-muted: #9a9a9a;
+  --c-border: #2a2a2a;
+}
+
+html,
+body {
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+body {
+  padding-top: env(safe-area-inset-top);
+}
+
+/* Горизонтальные ленты (чипы, галерея) — без скроллбара */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Появление карточек каталога при смене фильтра (только transform/opacity — 60fps) */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-up {
+  animation: fade-up 0.3s ease both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-fade-in {
+  animation: fade-in 0.25s ease both;
+}
+
+@keyframes pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.animate-pop-in {
+  animation: pop-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Нижние фиксированные кнопки — с учётом safe-area */
+.pb-safe {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 16px);
+}
