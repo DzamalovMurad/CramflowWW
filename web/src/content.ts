@@ -47,6 +47,8 @@ export const content = {
     addressPlaceholder: 'улица, дом, квартира',
     date: 'дата доставки',
     time: 'время доставки',
+    timeNote: 'доставляем ежедневно с 9:00 до 21:00',
+    timeAtLabel: 'к какому времени',
     comment: 'комментарий',
     commentOptional: 'необязательно',
     commentPlaceholder: 'например: без сирени',
@@ -67,9 +69,9 @@ export const content = {
   },
 
   confirmation: {
-    title: 'спасибо за ваш заказ!',
+    title: 'заказ успешно добавлен',
     orderLabel: 'заказ',
-    orderAccepted: 'принят',
+    orderAccepted: 'принят — спасибо за доверие',
     composition: 'состав заказа',
     promoApplied: 'промокод применён',
     total: 'итого',

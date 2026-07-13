@@ -5,7 +5,7 @@ import { checkPromo, createOrder, fetchMe } from '../api';
 import { useCart } from '../cart';
 import { haptic, tg } from '../telegram';
 import { content } from '../content';
-import { TIME_SLOTS, formatPrice } from '../types';
+import { DELIVERY_MODES, formatPrice, type DeliveryMode } from '../types';
 
 const c = content.checkout;
 
@@ -33,7 +33,8 @@ export default function Checkout() {
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
   const [date, setDate] = useState('');
-  const [time, setTime] = useState('');
+  const [mode, setMode] = useState<DeliveryMode | ''>('');
+  const [timeAt, setTimeAt] = useState(''); // HH:MM для режима «ко времени»
   const [comment, setComment] = useState('');
   const [cardText, setCardText] = useState('');
   const [isAnonymous, setIsAnonymous] = useState(false);
@@ -84,6 +85,9 @@ export default function Checkout() {
 
   const discounted = promo ? Math.floor((total * (100 - promo.discount_percent)) / 100) : total;
 
+  // «экспресс» / «в течение часа» уходят как есть, «ко времени» — как «к HH:MM».
+  const deliveryTime = mode === 'ко времени' ? (timeAt ? `к ${timeAt}` : '') : mode;
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
@@ -95,7 +99,7 @@ export default function Checkout() {
         phone,
         delivery_address: address,
         delivery_date: date,
-        delivery_time: time,
+        delivery_time: deliveryTime,
         comment,
         card_text: cardText,
         is_anonymous: isAnonymous,
@@ -161,22 +165,36 @@ export default function Checkout() {
 
         <Field label={c.time}>
           <div className="grid grid-cols-3 gap-2">
-            {TIME_SLOTS.map((slot) => (
+            {DELIVERY_MODES.map((m) => (
               <button
                 type="button"
-                key={slot}
+                key={m}
                 onClick={() => {
                   haptic('light');
-                  setTime(slot);
+                  setMode(m);
                 }}
                 className={`rounded-button py-3 text-[13px] font-medium transition-colors ${
-                  time === slot ? 'bg-ink text-page' : 'bg-tile text-ink'
+                  mode === m ? 'bg-ink text-page' : 'bg-tile text-ink'
                 }`}
               >
-                {slot}
+                {m}
               </button>
             ))}
           </div>
+          {mode === 'ко времени' && (
+            <div className="animate-fade-in mt-2">
+              <input
+                className={inputCls}
+                type="time"
+                min="09:00"
+                max="21:00"
+                value={timeAt}
+                onChange={(e) => setTimeAt(e.target.value)}
+                required
+              />
+            </div>
+          )}
+          <p className="mt-1.5 text-xs lowercase text-muted">{c.timeNote}</p>
         </Field>
 
         <Field label={c.comment} optional={c.commentOptional}>
@@ -281,7 +299,7 @@ export default function Checkout() {
 
         <button
           type="submit"
-          disabled={submitting || !time}
+          disabled={submitting || !deliveryTime}
           className="w-full rounded-button bg-accent py-4 text-[15px] font-bold lowercase text-on-accent transition-transform active:scale-[0.98] disabled:opacity-50"
         >
           {submitting ? c.submitting : c.submit}

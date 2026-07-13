@@ -4,6 +4,8 @@ package service
 import (
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"gorm.io/gorm"
@@ -12,7 +14,27 @@ import (
 	"github.com/dzamalovmurad/cramflowww/internal/repository"
 )
 
-var DeliverySlots = []string{"10:00-12:00", "12:00-15:00", "15:00-18:00"}
+// Доставка ежедневно с 9:00 до 21:00: экспресс, в течение часа или к точному времени («к 15:30»).
+var DeliveryOptions = []string{"экспресс", "в течение часа"}
+
+var deliveryAtRe = regexp.MustCompile(`^к ([0-2]\d):([0-5]\d)$`)
+
+// validDeliveryTime принимает готовый вариант или «к HH:MM» в окне 9:00–21:00.
+func validDeliveryTime(s string) bool {
+	for _, opt := range DeliveryOptions {
+		if s == opt {
+			return true
+		}
+	}
+	m := deliveryAtRe.FindStringSubmatch(s)
+	if m == nil {
+		return false
+	}
+	h, _ := strconv.Atoi(m[1])
+	min, _ := strconv.Atoi(m[2])
+	t := h*60 + min
+	return t >= 9*60 && t <= 21*60
+}
 
 type Service struct {
 	Repo *repository.Repository
@@ -80,15 +102,8 @@ func (s *Service) CreateOrder(in OrderInput) (*model.Order, error) {
 	if in.DeliveryDate == "" {
 		return nil, invalid("укажите дату доставки")
 	}
-	validSlot := false
-	for _, slot := range DeliverySlots {
-		if in.DeliveryTime == slot {
-			validSlot = true
-			break
-		}
-	}
-	if !validSlot {
-		return nil, invalid("выберите время доставки")
+	if !validDeliveryTime(in.DeliveryTime) {
+		return nil, invalid("выберите время доставки (с 9:00 до 21:00)")
 	}
 
 	user, err := s.Repo.UpsertUser(in.TelegramID, in.Name, in.Phone)

@@ -73,7 +73,9 @@ export const FILTERS = [
   { id: 'budget', label: '💰 До 3000 ₽' },
 ] as const;
 
-export const TIME_SLOTS = ['10:00-12:00', '12:00-15:00', '15:00-18:00'] as const;
+/** Способы доставки: точное время выбирается отдельным полем (окно 9:00–21:00). */
+export const DELIVERY_MODES = ['экспресс', 'в течение часа', 'ко времени'] as const;
+export type DeliveryMode = (typeof DELIVERY_MODES)[number];
 
 export function formatPrice(p: number): string {
   return p.toLocaleString('ru-RU') + ' ₽';
