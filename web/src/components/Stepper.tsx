@@ -1,4 +1,5 @@
 import { haptic } from '../telegram';
+import { IconMinus, IconPlus } from './icons';
 
 interface Props {
   value: number;
@@ -6,32 +7,31 @@ interface Props {
   min?: number;
 }
 
-/** Счётчик количества «− n +». */
+/** Счётчик количества: серая плитка с − n +. */
 export default function Stepper({ value, onChange, min = 1 }: Props) {
-  const btn =
-    'flex h-8 w-8 items-center justify-center rounded-full border border-line text-lg leading-none active:bg-line';
+  const btn = 'flex h-9 w-9 items-center justify-center text-ink active:opacity-50';
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center rounded-button bg-tile">
       <button
-        aria-label="Уменьшить"
+        aria-label="уменьшить"
         className={btn}
         onClick={() => {
           haptic('light');
           onChange(Math.max(min - 1, value - 1));
         }}
       >
-        −
+        <IconMinus size={15} />
       </button>
-      <span className="min-w-6 text-center text-base font-semibold">{value}</span>
+      <span className="min-w-7 text-center text-sm font-bold">{value}</span>
       <button
-        aria-label="Увеличить"
+        aria-label="увеличить"
         className={btn}
         onClick={() => {
           haptic('light');
           onChange(Math.min(99, value + 1));
         }}
       >
-        +
+        <IconPlus size={15} />
       </button>
     </div>
   );

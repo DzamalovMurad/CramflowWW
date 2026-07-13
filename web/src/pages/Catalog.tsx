@@ -7,9 +7,10 @@ import ProductCardView from '../components/ProductCardView';
 import { fetchProduct, fetchProducts } from '../api';
 import { useCart } from '../cart';
 import { haptic } from '../telegram';
+import { content } from '../content';
 import type { ProductCard } from '../types';
 
-/** Каталог: категории + быстрые фильтры + грид карточек. */
+/** Каталог: категории + быстрые фильтры + editorial-сетка. */
 export default function Catalog() {
   const [params, setParams] = useSearchParams();
   const category = params.get('category') ?? '';
@@ -55,36 +56,35 @@ export default function Catalog() {
   };
 
   return (
-    <div className="pb-8">
-      <Header />
+    <div className="pb-10">
+      <Header title={content.catalog.title} />
       <div className="sticky top-14 z-10 border-b border-line bg-page/95 backdrop-blur">
         <CategoryChips selected={category} onSelect={(c) => updateParams('category', c)} />
         <FilterPills selected={filter} onSelect={(f) => updateParams('filter', f)} />
       </div>
 
-      {error && <p className="p-6 text-center text-sm text-muted">{error}</p>}
+      {error && <p className="p-6 text-center text-sm lowercase text-muted">{error}</p>}
 
       {products === null && !error && (
-        <div className="grid grid-cols-2 gap-3 p-4">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-6 p-4">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="aspect-[3/4] animate-pulse rounded-card bg-line" />
+            <div key={i}>
+              <div className="aspect-[4/5] animate-pulse rounded-card bg-tile" />
+              <div className="mt-2.5 h-3.5 w-2/3 animate-pulse rounded bg-tile" />
+              <div className="mt-2 h-4 w-1/3 animate-pulse rounded bg-tile" />
+            </div>
           ))}
         </div>
       )}
 
       {products !== null && products.length === 0 && (
-        <div className="p-10 text-center">
-          <p className="text-4xl">🌷</p>
-          <p className="mt-3 text-sm text-muted">
-            По этим условиям букетов не нашлось.
-            <br />
-            Попробуйте изменить фильтры.
-          </p>
-        </div>
+        <p className="px-10 py-16 text-center text-sm lowercase leading-relaxed text-muted">
+          {content.catalog.empty}
+        </p>
       )}
 
       {products !== null && products.length > 0 && (
-        <div key={`${category}|${filter}`} className="grid grid-cols-2 gap-3 p-4">
+        <div key={`${category}|${filter}`} className="grid grid-cols-2 gap-x-3 gap-y-6 p-4">
           {products.map((p, i) => (
             <ProductCardView key={p.id} product={p} index={i} onAdd={addCheapest} />
           ))}

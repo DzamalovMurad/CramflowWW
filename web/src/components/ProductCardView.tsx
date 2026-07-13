@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import type { ProductCard } from '../types';
 import { formatPrice } from '../types';
+import { content, categoryLabels } from '../content';
 import { haptic } from '../telegram';
 
 interface Props {
@@ -9,15 +10,15 @@ interface Props {
   onAdd: (product: ProductCard) => void;
 }
 
-/** Карточка каталога: фото 1:1, название, цена «от …», кнопка в корзину. */
+/** Карточка каталога: фото на серой плитке, название, цена, тихая кнопка «в корзину». */
 export default function ProductCardView({ product, index, onAdd }: Props) {
   return (
     <div
-      className="animate-fade-up overflow-hidden rounded-card border border-line bg-surface shadow-card"
+      className="animate-fade-up"
       style={{ animationDelay: `${Math.min(index * 45, 300)}ms` }}
     >
       <Link to={`/product/${product.id}`} className="block">
-        <div className="aspect-square w-full overflow-hidden bg-line">
+        <div className="aspect-[4/5] w-full overflow-hidden rounded-card bg-tile">
           {product.image && (
             <img
               src={product.image}
@@ -27,22 +28,23 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
             />
           )}
         </div>
-        <div className="px-3 pt-3">
-          <h3 className="line-clamp-2 min-h-10 text-sm font-medium leading-5">{product.name}</h3>
-          <p className="mt-1 text-base font-semibold">от {formatPrice(product.price)}</p>
-        </div>
+        <p className="mt-2.5 line-clamp-1 text-[13px] font-medium lowercase leading-snug">
+          {product.name}
+        </p>
+        <p className="text-xs lowercase text-muted">{categoryLabels[product.category] ?? product.category}</p>
+        <p className="mt-1 text-[15px] font-bold">
+          {content.catalog.priceFrom} {formatPrice(product.price)}
+        </p>
       </Link>
-      <div className="p-3">
-        <button
-          onClick={() => {
-            haptic('medium');
-            onAdd(product);
-          }}
-          className="w-full rounded-card bg-accent py-2 text-sm font-semibold text-[#111111] transition-transform active:scale-95"
-        >
-          Добавить в корзину
-        </button>
-      </div>
+      <button
+        onClick={() => {
+          haptic('medium');
+          onAdd(product);
+        }}
+        className="mt-2 w-full rounded-button bg-tile py-2.5 text-[13px] font-medium lowercase text-ink transition-transform active:scale-[0.97]"
+      >
+        {content.catalog.addToCart}
+      </button>
     </div>
   );
 }

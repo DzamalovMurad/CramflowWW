@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type { ProductImage } from '../types';
+import { IconClose } from './icons';
 
 /**
  * Свайп-галерея фото товара: scroll-snap, индикатор-точки,
@@ -17,7 +18,7 @@ export default function Gallery({ images, alt }: { images: ProductImage[]; alt: 
   };
 
   if (images.length === 0) {
-    return <div className="aspect-square w-full bg-line" />;
+    return <div className="aspect-square w-full bg-tile" />;
   }
 
   return (
@@ -26,7 +27,7 @@ export default function Gallery({ images, alt }: { images: ProductImage[]; alt: 
         <div
           ref={trackRef}
           onScroll={onScroll}
-          className="no-scrollbar flex aspect-square w-full snap-x snap-mandatory overflow-x-auto"
+          className="no-scrollbar flex aspect-square w-full snap-x snap-mandatory overflow-x-auto bg-tile"
         >
           {images.map((img, i) => (
             <img
@@ -59,11 +60,11 @@ export default function Gallery({ images, alt }: { images: ProductImage[]; alt: 
           onClick={() => setFullscreen(false)}
         >
           <button
-            aria-label="Закрыть"
-            className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-2xl text-white"
+            aria-label="закрыть"
+            className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white"
             style={{ top: 'calc(env(safe-area-inset-top) + 16px)' }}
           >
-            ×
+            <IconClose size={18} />
           </button>
           <div className="no-scrollbar flex w-full snap-x snap-mandatory overflow-x-auto">
             {images.map((img, i) => (

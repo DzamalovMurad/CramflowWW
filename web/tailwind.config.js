@@ -1,32 +1,33 @@
 /**
- * Дизайн-токены CramFlow (премиум-минимализм).
- * Цвета заведены через CSS-переменные, чтобы тёмная тема Telegram
- * переключалась без пересборки (см. src/styles/index.css и src/telegram.ts).
+ * Дизайн-токены CramFlow подключены через CSS-переменные —
+ * править цвета/шрифты/радиусы нужно в src/styles/index.css (секция токенов),
+ * тексты — в src/content.ts. Тёмная тема переключается атрибутом data-theme.
  */
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
-        page: 'var(--c-bg)',          // фон: #FFFFFF / тёмный
-        surface: 'var(--c-surface)',  // карточки
-        ink: 'var(--c-text)',         // текст: #111111 / светлый
-        muted: 'var(--c-muted)',      // вторичный текст
-        line: 'var(--c-border)',      // бордеры: #EDEDED / тёмный
-        accent: '#A7FC00',            // акцент
-        'accent-2': '#87CC00',        // secondary-акцент
+        page: 'var(--c-bg)',
+        surface: 'var(--c-surface)',
+        tile: 'var(--c-tile)',
+        ink: 'var(--c-text)',
+        muted: 'var(--c-muted)',
+        line: 'var(--c-border)',
+        accent: 'var(--c-accent)',
+        'accent-2': 'var(--c-accent-2)',
+        'on-accent': 'var(--c-on-accent)',
       },
       borderRadius: {
-        card: '8px',
+        card: 'var(--radius-card)',
+        button: 'var(--radius-button)',
       },
       boxShadow: {
-        card: '0 4px 8px rgba(0,0,0,0.1)',
+        card: 'var(--shadow-card)',
+        float: 'var(--shadow-float)',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
-      },
-      spacing: {
-        // база 16px, отступы кратны 8 — стандартная шкала Tailwind уже кратна 4/8
+        sans: 'var(--font-body)',
       },
     },
   },

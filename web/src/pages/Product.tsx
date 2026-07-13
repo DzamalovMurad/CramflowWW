@@ -6,9 +6,10 @@ import Stepper from '../components/Stepper';
 import { fetchProduct } from '../api';
 import { useCart } from '../cart';
 import { haptic, tg } from '../telegram';
+import { content, categoryLabels } from '../content';
 import { formatPrice, type Product } from '../types';
 
-/** Карточка товара: галерея, варианты, количество, нижняя кнопка с суммой. */
+/** Карточка товара: галерея, варианты-чипы, количество, нижняя кнопка с суммой. */
 export default function ProductPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -32,7 +33,7 @@ export default function ProductPage() {
     return (
       <div>
         <Header showBack={!tg()} />
-        <p className="p-10 text-center text-sm text-muted">{error}</p>
+        <p className="p-10 text-center text-sm lowercase text-muted">{error}</p>
       </div>
     );
   }
@@ -41,10 +42,10 @@ export default function ProductPage() {
     return (
       <div>
         <Header showBack={!tg()} />
-        <div className="aspect-square animate-pulse bg-line" />
-        <div className="space-y-3 p-4">
-          <div className="h-6 w-2/3 animate-pulse rounded bg-line" />
-          <div className="h-4 w-full animate-pulse rounded bg-line" />
+        <div className="aspect-square animate-pulse bg-tile" />
+        <div className="space-y-3 p-5">
+          <div className="h-7 w-2/3 animate-pulse rounded bg-tile" />
+          <div className="h-4 w-full animate-pulse rounded bg-tile" />
         </div>
       </div>
     );
@@ -71,25 +72,19 @@ export default function ProductPage() {
   };
 
   return (
-    <div className="pb-28">
+    <div className="pb-32">
       <Header showBack={!tg()} />
       <Gallery images={product.images} alt={product.name} />
 
-      <div className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <h1 className="text-xl font-bold leading-tight">{product.name}</h1>
-          <span className="mt-0.5 whitespace-nowrap rounded-full border border-line px-2.5 py-1 text-xs text-muted">
-            {product.category}
-          </span>
-        </div>
+      <div className="p-5">
+        <p className="label">{categoryLabels[product.category] ?? product.category}</p>
+        <h1 className="display mt-1 text-[26px]">{product.name}</h1>
         {product.description && (
           <p className="mt-3 text-sm leading-relaxed text-muted">{product.description}</p>
         )}
 
-        <h2 className="mb-2 mt-6 text-sm font-semibold uppercase tracking-wide text-muted">
-          Размер букета
-        </h2>
-        <div className="space-y-2">
+        <p className="label mb-2.5 mt-7">{content.product.sizeLabel}</p>
+        <div className="flex flex-wrap gap-2">
           {product.variants.map((v) => {
             const active = v.id === variant?.id;
             return (
@@ -99,21 +94,18 @@ export default function ProductPage() {
                   haptic('light');
                   setVariantId(v.id);
                 }}
-                className={`flex w-full items-center justify-between rounded-card border p-4 text-left transition-colors ${
-                  active ? 'border-accent bg-accent/10' : 'border-line bg-surface'
+                className={`rounded-button border px-4 py-2.5 text-sm font-medium transition-colors ${
+                  active ? 'border-ink bg-ink text-page' : 'border-line bg-page text-ink'
                 }`}
               >
-                <span className="text-sm font-medium">{v.quantity} шт</span>
-                <span className="text-base font-semibold">{formatPrice(v.price)}</span>
+                {v.quantity} {content.product.flowersUnit} · {formatPrice(v.price)}
               </button>
             );
           })}
         </div>
 
-        <div className="mt-6 flex items-center justify-between">
-          <span className="text-sm font-semibold uppercase tracking-wide text-muted">
-            Количество
-          </span>
+        <div className="mt-7 flex items-center justify-between">
+          <p className="label">{content.product.qtyLabel}</p>
           <Stepper value={qty} onChange={(v) => (v < 1 ? undefined : setQty(v))} />
         </div>
       </div>
@@ -122,9 +114,10 @@ export default function ProductPage() {
         <button
           onClick={addToCart}
           disabled={!variant}
-          className="w-full rounded-card bg-accent py-4 text-base font-semibold text-[#111111] shadow-card transition-transform active:scale-[0.98] disabled:opacity-50"
+          className="flex w-full items-center justify-between rounded-button bg-accent px-5 py-4 text-[15px] font-bold lowercase text-on-accent transition-transform active:scale-[0.98] disabled:opacity-50"
         >
-          Добавить в корзину · {formatPrice(total)}
+          <span>{content.product.addToCart}</span>
+          <span>{formatPrice(total)}</span>
         </button>
       </div>
     </div>

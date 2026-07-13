@@ -1,13 +1,28 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 import { checkPromo, createOrder, fetchMe } from '../api';
 import { useCart } from '../cart';
 import { haptic, tg } from '../telegram';
+import { content } from '../content';
 import { TIME_SLOTS, formatPrice } from '../types';
 
+const c = content.checkout;
+
 const inputCls =
-  'w-full rounded-card border border-line bg-surface px-4 py-3 text-base outline-none transition-colors placeholder:text-muted focus:border-accent-2';
+  'w-full rounded-card bg-tile px-4 py-3.5 text-[15px] text-ink outline-none transition-shadow placeholder:text-muted focus:ring-1 focus:ring-ink';
+
+function Field({ label, optional, children }: { label: string; optional?: string; children: ReactNode }) {
+  return (
+    <div>
+      <label className="label mb-1.5 block">
+        {label}
+        {optional && <span className="text-muted"> · {optional}</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
 
 /** Оформление заказа: контакты, адрес, дата/время, комментарий, промокод. */
 export default function Checkout() {
@@ -94,46 +109,42 @@ export default function Checkout() {
 
   return (
     <div className="pb-10">
-      <Header title="Оформление" showBack={!tg()} />
+      <Header title={c.title} showBack={!tg()} />
 
-      <form onSubmit={submit} className="space-y-4 p-4">
-        <div>
-          <label className="mb-1.5 block text-sm font-medium">Ваше имя</label>
+      <form onSubmit={submit} className="space-y-5 p-4 pt-5">
+        <Field label={c.name}>
           <input
             className={inputCls}
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Иван"
+            placeholder={c.namePlaceholder}
             required
           />
-        </div>
+        </Field>
 
-        <div>
-          <label className="mb-1.5 block text-sm font-medium">Телефон</label>
+        <Field label={c.phone}>
           <input
             className={inputCls}
             type="tel"
             inputMode="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="+7 900 000-00-00"
+            placeholder={c.phonePlaceholder}
             required
           />
-        </div>
+        </Field>
 
-        <div>
-          <label className="mb-1.5 block text-sm font-medium">Адрес доставки</label>
+        <Field label={c.address}>
           <input
             className={inputCls}
             value={address}
             onChange={(e) => setAddress(e.target.value)}
-            placeholder="Улица, дом, квартира"
+            placeholder={c.addressPlaceholder}
             required
           />
-        </div>
+        </Field>
 
-        <div>
-          <label className="mb-1.5 block text-sm font-medium">Дата доставки</label>
+        <Field label={c.date}>
           <input
             className={inputCls}
             type="date"
@@ -142,10 +153,9 @@ export default function Checkout() {
             onChange={(e) => setDate(e.target.value)}
             required
           />
-        </div>
+        </Field>
 
-        <div>
-          <label className="mb-1.5 block text-sm font-medium">Время доставки</label>
+        <Field label={c.time}>
           <div className="grid grid-cols-3 gap-2">
             {TIME_SLOTS.map((slot) => (
               <button
@@ -155,47 +165,44 @@ export default function Checkout() {
                   haptic('light');
                   setTime(slot);
                 }}
-                className={`rounded-card border py-3 text-sm font-medium transition-colors ${
-                  time === slot ? 'border-accent bg-accent/10' : 'border-line bg-surface'
+                className={`rounded-button py-3 text-[13px] font-medium transition-colors ${
+                  time === slot ? 'bg-ink text-page' : 'bg-tile text-ink'
                 }`}
               >
                 {slot}
               </button>
             ))}
           </div>
-        </div>
+        </Field>
 
-        <div>
-          <label className="mb-1.5 block text-sm font-medium">
-            Комментарий <span className="font-normal text-muted">(необязательно)</span>
-          </label>
+        <Field label={c.comment} optional={c.commentOptional}>
           <textarea
             className={`${inputCls} resize-none`}
             rows={2}
             value={comment}
             onChange={(e) => setComment(e.target.value)}
-            placeholder="Например: без сирени"
+            placeholder={c.commentPlaceholder}
           />
-        </div>
+        </Field>
 
-        <div>
-          <label className="mb-1.5 block text-sm font-medium">Промокод</label>
+        <Field label={c.promo}>
           {promo ? (
-            <div className="flex items-center justify-between rounded-card border border-accent-2 bg-accent/10 px-4 py-3">
-              <span className="text-sm font-medium">
-                🎁 {promo.code} — скидка {promo.discount_percent}%
+            <div className="flex items-center justify-between rounded-card bg-tile px-4 py-3.5">
+              <span className="flex items-center gap-2 text-sm font-medium">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent-2" />
+                {promo.code} — {c.promoDiscount} {promo.discount_percent}%
               </span>
               {promoSource === 'form' && (
                 <button
                   type="button"
-                  className="text-sm text-muted"
+                  className="text-sm lowercase text-muted"
                   onClick={() => {
                     setPromo(null);
                     setPromoSource(null);
                     setPromoInput('');
                   }}
                 >
-                  Убрать
+                  {c.promoRemove}
                 </button>
               )}
             </div>
@@ -205,47 +212,49 @@ export default function Checkout() {
                 className={inputCls}
                 value={promoInput}
                 onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
-                placeholder="WELCOME10"
+                placeholder={c.promoPlaceholder}
               />
               <button
                 type="button"
                 onClick={applyPromo}
-                className="whitespace-nowrap rounded-card border border-line px-4 text-sm font-medium active:bg-line"
+                className="whitespace-nowrap rounded-button bg-tile px-4 text-sm font-medium lowercase active:opacity-60"
               >
-                Применить
+                {c.promoApply}
               </button>
             </div>
           )}
-          {promoError && <p className="mt-1 text-xs text-red-500">{promoError}</p>}
-        </div>
+          {promoError && <p className="mt-1.5 text-xs lowercase text-red-500">{promoError}</p>}
+        </Field>
 
-        <div className="space-y-1 border-t border-line pt-4">
+        <div className="space-y-1.5 border-t border-line pt-4">
           {promo && (
             <>
-              <div className="flex justify-between text-sm text-muted">
-                <span>Сумма</span>
+              <div className="flex justify-between text-sm lowercase text-muted">
+                <span>{c.subtotal}</span>
                 <span>{formatPrice(total)}</span>
               </div>
-              <div className="flex justify-between text-sm text-accent-2">
-                <span>Скидка {promo.discount_percent}%</span>
+              <div className="flex justify-between text-sm lowercase text-accent-2">
+                <span>
+                  {c.discount} {promo.discount_percent}%
+                </span>
                 <span>−{formatPrice(total - discounted)}</span>
               </div>
             </>
           )}
-          <div className="flex justify-between text-lg font-bold">
-            <span>Итого</span>
+          <div className="flex justify-between text-lg font-bold lowercase">
+            <span>{c.total}</span>
             <span>{formatPrice(discounted)}</span>
           </div>
         </div>
 
-        {error && <p className="text-center text-sm text-red-500">{error}</p>}
+        {error && <p className="text-center text-sm lowercase text-red-500">{error}</p>}
 
         <button
           type="submit"
           disabled={submitting || !time}
-          className="w-full rounded-card bg-accent py-4 text-base font-semibold text-[#111111] shadow-card transition-transform active:scale-[0.98] disabled:opacity-50"
+          className="w-full rounded-button bg-accent py-4 text-[15px] font-bold lowercase text-on-accent transition-transform active:scale-[0.98] disabled:opacity-50"
         >
-          {submitting ? 'Отправляем…' : 'Подтвердить'}
+          {submitting ? c.submitting : c.submit}
         </button>
       </form>
     </div>

@@ -1,6 +1,10 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import Header from '../components/Header';
+import { content } from '../content';
 import { formatPrice, type Order } from '../types';
+import { IconCheck } from '../components/icons';
+
+const c = content.confirmation;
 
 /** Экран подтверждения: номер заказа, состав, «ожидайте звонка менеджера». */
 export default function Confirmation() {
@@ -11,28 +15,26 @@ export default function Confirmation() {
   return (
     <div className="pb-10">
       <Header />
-      <div className="flex flex-col items-center px-6 pt-12 text-center">
-        <div className="animate-pop-in flex h-20 w-20 items-center justify-center rounded-full bg-accent/20 text-4xl">
-          🌸
+      <div className="flex flex-col items-center px-6 pt-14 text-center">
+        <div className="animate-pop-in flex h-16 w-16 items-center justify-center rounded-full bg-accent text-on-accent">
+          <IconCheck size={26} />
         </div>
-        <h1 className="animate-fade-up mt-5 text-2xl font-bold">Спасибо за ваш заказ!</h1>
-        <p className="animate-fade-up mt-1 text-muted" style={{ animationDelay: '80ms' }}>
-          Заказ <span className="font-semibold text-ink">#{id}</span> принят
+        <h1 className="display animate-fade-up mt-6 text-[26px]">{c.title}</h1>
+        <p className="animate-fade-up mt-2 text-sm lowercase text-muted" style={{ animationDelay: '80ms' }}>
+          {c.orderLabel} <span className="font-bold text-ink">#{id}</span> {c.orderAccepted}
         </p>
       </div>
 
       {order && (
         <div
-          className="animate-fade-up mx-4 mt-8 rounded-card border border-line bg-surface p-4 shadow-card"
+          className="animate-fade-up mx-4 mt-9 rounded-card bg-tile p-5"
           style={{ animationDelay: '160ms' }}
         >
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
-            Состав заказа
-          </h2>
-          <div className="space-y-2">
+          <p className="label mb-3">{c.composition}</p>
+          <div className="space-y-2.5">
             {order.items.map((item) => (
               <div key={item.id} className="flex items-baseline justify-between gap-3 text-sm">
-                <span>
+                <span className="lowercase">
                   {item.product_name} · {item.variant.quantity} шт
                   {item.quantity > 1 && <span className="text-muted"> ×{item.quantity}</span>}
                 </span>
@@ -43,30 +45,35 @@ export default function Confirmation() {
             ))}
           </div>
           {order.promo_code && (
-            <p className="mt-3 text-sm text-accent-2">
-              Промокод {order.promo_code.code} (−{order.promo_code.discount_percent}%) применён
+            <p className="mt-3.5 flex items-center gap-2 text-sm lowercase text-accent-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-accent-2" />
+              {c.promoApplied}: <span className="normal-case">{order.promo_code.code}</span> (−
+              {order.promo_code.discount_percent}%)
             </p>
           )}
-          <div className="mt-3 flex justify-between border-t border-line pt-3 font-bold">
-            <span>Итого</span>
+          <div className="mt-4 flex justify-between border-t border-line pt-3.5 font-bold lowercase">
+            <span>{c.total}</span>
             <span>{formatPrice(order.total_price)}</span>
           </div>
-          <p className="mt-3 text-xs text-muted">
-            Доставка: {order.delivery_address} · {order.delivery_date}, {order.delivery_time}
+          <p className="mt-3 text-xs lowercase leading-relaxed text-muted">
+            {c.delivery}: {order.delivery_address} · {order.delivery_date}, {order.delivery_time}
           </p>
         </div>
       )}
 
-      <p className="animate-fade-up mt-8 px-10 text-center text-sm text-muted" style={{ animationDelay: '240ms' }}>
-        📞 Ожидайте звонка менеджера для подтверждения заказа
+      <p
+        className="animate-fade-up mt-9 px-12 text-center text-sm lowercase leading-relaxed text-muted"
+        style={{ animationDelay: '240ms' }}
+      >
+        {c.managerCall}
       </p>
 
-      <div className="px-4 pt-8">
+      <div className="px-4 pt-9">
         <Link
           to="/catalog"
-          className="block w-full rounded-card border border-line py-3.5 text-center text-sm font-semibold active:bg-line"
+          className="block w-full rounded-button bg-ink py-4 text-center text-[15px] font-bold lowercase text-page transition-transform active:scale-[0.98]"
         >
-          Вернуться в каталог
+          {c.backToCatalog}
         </Link>
       </div>
     </div>

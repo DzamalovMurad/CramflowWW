@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import Header from '../components/Header';
+import { content, categoryLabels } from '../content';
 import { CATEGORIES } from '../types';
 
-/** Главный экран: hero с фото букета, заголовок и CTA. Лёгкий parallax на transform. */
+/** Главный экран: фулскрин-фото, строчный заголовок, CTA. Лёгкий parallax на transform. */
 export default function Home() {
   const imgRef = useRef<HTMLImageElement>(null);
 
@@ -25,52 +26,50 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="pb-8">
+    <div className="pb-10">
       <Header />
 
-      <section className="relative h-[62vh] min-h-[380px] overflow-hidden">
+      <section className="relative h-[68vh] min-h-[420px] overflow-hidden">
         <img
           ref={imgRef}
           src="/seed/hero.webp"
-          alt="Букет цветов"
+          alt=""
           className="absolute inset-0 h-[120%] w-full object-cover will-change-transform"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 p-6 pb-8 text-white">
-          <h1 className="animate-fade-up text-3xl font-bold leading-tight">
-            Цветы, которые
-            <br />
-            хочется дарить
-          </h1>
-          <p className="animate-fade-up mt-2 text-sm text-white/85" style={{ animationDelay: '80ms' }}>
-            Свежие букеты с доставкой сегодня
+        <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/15 to-transparent" />
+        <div className="absolute bottom-0 left-0 right-0 p-5 pb-7 text-white">
+          <h1 className="display animate-fade-up text-[34px]">{content.home.title}</h1>
+          <p
+            className="animate-fade-up mt-2.5 text-sm lowercase text-white/80"
+            style={{ animationDelay: '80ms' }}
+          >
+            {content.home.subtitle}
           </p>
           <Link
             to="/catalog"
-            className="animate-fade-up mt-5 block w-full rounded-card bg-accent py-3.5 text-center text-base font-semibold text-[#111111] shadow-card transition-transform active:scale-[0.98]"
+            className="animate-fade-up mt-6 block w-full rounded-button bg-accent py-4 text-center text-[15px] font-bold lowercase text-on-accent transition-transform active:scale-[0.98]"
             style={{ animationDelay: '160ms' }}
           >
-            Перейти в каталог
+            {content.home.cta}
           </Link>
         </div>
       </section>
 
-      <section className="px-4 pt-6">
-        <h2 className="mb-3 text-lg font-semibold">Категории</h2>
-        <div className="grid grid-cols-2 gap-3">
-          {CATEGORIES.map(({ emoji, name }, i) => (
-            <Link
-              key={name}
-              to={`/catalog?category=${encodeURIComponent(name)}`}
-              className="animate-fade-up flex items-center gap-3 rounded-card border border-line bg-surface p-4 shadow-card transition-transform active:scale-[0.97]"
-              style={{ animationDelay: `${i * 60}ms` }}
-            >
-              <span className="text-2xl">{emoji}</span>
-              <span className="text-sm font-medium">{name}</span>
-            </Link>
-          ))}
-        </div>
-      </section>
+      <nav className="divide-y divide-line border-b border-line">
+        {CATEGORIES.map(({ name }, i) => (
+          <Link
+            key={name}
+            to={`/catalog?category=${encodeURIComponent(name)}`}
+            className="animate-fade-up flex items-center justify-between px-5 py-4 active:bg-tile"
+            style={{ animationDelay: `${200 + i * 50}ms` }}
+          >
+            <span className="text-[17px] font-bold lowercase tracking-tight">
+              {categoryLabels[name] ?? name}
+            </span>
+            <span className="text-muted">→</span>
+          </Link>
+        ))}
+      </nav>
     </div>
   );
 }
