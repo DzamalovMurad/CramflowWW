@@ -1,12 +1,14 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Header from '../components/Header';
 import { content, categoryLabels } from '../content';
 import { CATEGORIES } from '../types';
+import { fetchFreshToday } from '../api';
 
-/** Главный экран: фулскрин-фото, строчный заголовок, CTA. Лёгкий parallax на transform. */
+/** Главный экран: фулскрин-фото, строчный заголовок, CTA. */
 export default function Home() {
   const imgRef = useRef<HTMLImageElement>(null);
+  const [freshToday, setFreshToday] = useState<string | null>(null);
 
   useEffect(() => {
     let raf = 0;
@@ -23,6 +25,14 @@ export default function Home() {
       window.removeEventListener('scroll', onScroll);
       cancelAnimationFrame(raf);
     };
+  }, []);
+
+  useEffect(() => {
+    fetchFreshToday()
+      .then((data) => {
+        if (data.items) setFreshToday(data.items);
+      })
+      .catch(() => {});
   }, []);
 
   return (
@@ -54,6 +64,13 @@ export default function Home() {
           </Link>
         </div>
       </section>
+
+      {freshToday && (
+        <section className="animate-fade-up border-b border-line px-5 py-6">
+          <p className="label mb-2 block">сегодня на базе</p>
+          <p className="text-sm leading-relaxed text-ink">{freshToday}</p>
+        </section>
+      )}
 
       <nav className="divide-y divide-line border-b border-line">
         {CATEGORIES.map(({ name }, i) => (

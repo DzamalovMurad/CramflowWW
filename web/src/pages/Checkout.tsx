@@ -35,6 +35,8 @@ export default function Checkout() {
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
   const [comment, setComment] = useState('');
+  const [cardText, setCardText] = useState('');
+  const [isAnonymous, setIsAnonymous] = useState(false);
 
   const [promoInput, setPromoInput] = useState('');
   const [promo, setPromo] = useState<{ code: string; discount_percent: number } | null>(null);
@@ -95,6 +97,8 @@ export default function Checkout() {
         delivery_date: date,
         delivery_time: time,
         comment,
+        card_text: cardText,
+        is_anonymous: isAnonymous,
         // Промокод из deep-link сервер применит сам по initData.
         promo_code: promoSource === 'form' && promo ? promo.code : '',
       });
@@ -184,6 +188,32 @@ export default function Checkout() {
             placeholder={c.commentPlaceholder}
           />
         </Field>
+
+        <Field label={c.cardText} optional={c.cardTextOptional}>
+          <textarea
+            className={`${inputCls} resize-none`}
+            rows={2}
+            value={cardText}
+            onChange={(e) => setCardText(e.target.value)}
+            placeholder={c.cardTextPlaceholder}
+            maxLength={300}
+          />
+          {cardText && (
+            <p className="mt-1 text-xs text-muted">{cardText.length} / 300</p>
+          )}
+        </Field>
+
+        <div>
+          <label className="flex items-center gap-3 rounded-card bg-tile px-4 py-3.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isAnonymous}
+              onChange={(e) => setIsAnonymous(e.target.checked)}
+              className="h-5 w-5 cursor-pointer rounded accent-accent"
+            />
+            <span className="text-[15px] text-ink">{c.anonymous}</span>
+          </label>
+        </div>
 
         <Field label={c.promo}>
           {promo ? (

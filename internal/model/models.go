@@ -12,24 +12,40 @@ const (
 
 var Categories = []string{CategoryStandard, CategoryPremium, CategoryLux, CategoryWow}
 
-// Статусы заказов.
+// Статусы заказов: new → confirmed → assembling → photo_sent → delivering → delivered / cancelled.
 const (
 	StatusNew        = "new"
 	StatusConfirmed  = "confirmed"
+	StatusAssembling = "assembling"
+	StatusPhotoSent  = "photo_sent"
 	StatusDelivering = "delivering"
-	StatusDone       = "done"
+	StatusDelivered  = "delivered"
 	StatusCancelled  = "cancelled"
 )
 
 var StatusLabels = map[string]string{
 	StatusNew:        "🆕 Новый",
 	StatusConfirmed:  "✅ Подтверждён",
-	StatusDelivering: "🚚 Доставляется",
-	StatusDone:       "🏁 Выполнен",
+	StatusAssembling: "💐 Собираем",
+	StatusPhotoSent:  "📷 Фото отправлено",
+	StatusDelivering: "🚗 В пути",
+	StatusDelivered:  "🌸 Доставлен",
 	StatusCancelled:  "❌ Отменён",
 }
 
-var StatusOrder = []string{StatusNew, StatusConfirmed, StatusDelivering, StatusDone, StatusCancelled}
+var StatusOrder = []string{
+	StatusNew, StatusConfirmed, StatusAssembling, StatusPhotoSent,
+	StatusDelivering, StatusDelivered, StatusCancelled,
+}
+
+// ClientStatusMessages — что бот пишет клиенту при смене статуса (пустая строка = не писать).
+var ClientStatusMessages = map[string]string{
+	StatusConfirmed:  "Заказ #%d подтверждён ✅",
+	StatusAssembling: "Собираем ваш букет 💐",
+	StatusDelivering: "Курьер в пути 🚗",
+	StatusDelivered:  "Доставлен. Спасибо! 🌸",
+	StatusCancelled:  "Заказ #%d отменён. Если это ошибка — напишите нам.",
+}
 
 type Product struct {
 	ID          uint   `gorm:"primaryKey" json:"id"`
@@ -75,6 +91,8 @@ type Order struct {
 	DeliveryTime    string `gorm:"not null" json:"delivery_time"`
 	PromoCodeID     *uint  `json:"promo_code_id,omitempty"`
 	Comment         string `json:"comment"`
+	CardText        string `json:"card_text"`     // текст открытки (до 300 символов)
+	IsAnonymous     bool   `json:"is_anonymous"`  // анонимная доставка
 	Status          string `gorm:"not null;default:new;index" json:"status"`
 	CreatedAt       time.Time `json:"created_at"`
 
@@ -93,6 +111,15 @@ type OrderItem struct {
 	Variant ProductVariant `json:"variant"`
 	// Название товара фиксируем на момент заказа, чтобы заказ читался даже после удаления товара.
 	ProductName string `json:"product_name"`
+}
+
+// FreshToday — «Сегодня на базе»: что флорист закупил утром.
+// Актуальна запись за сегодняшнюю дату; /fresh в боте перезаписывает её.
+type FreshToday struct {
+	ID        uint   `gorm:"primaryKey" json:"id"`
+	Date      string `gorm:"uniqueIndex;not null" json:"date"` // YYYY-MM-DD
+	Items     string `gorm:"not null" json:"items"`            // «пионы, ранункулюсы, эустома»
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type PromoCode struct {

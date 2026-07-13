@@ -24,6 +24,7 @@ export const content = {
     qtyLabel: 'количество',
     addToCart: 'в корзину',
     flowersUnit: 'шт',
+    availabilityNote: 'состав можно согласовать на этапе сборки',
   },
 
   cart: {
@@ -49,6 +50,10 @@ export const content = {
     comment: 'комментарий',
     commentOptional: 'необязательно',
     commentPlaceholder: 'например: без сирени',
+    cardText: 'текст открытки',
+    cardTextOptional: 'необязательно',
+    cardTextPlaceholder: 'пожелание или посвящение',
+    anonymous: 'отправить анонимно',
     promo: 'промокод',
     promoPlaceholder: 'WELCOME10',
     promoApply: 'применить',

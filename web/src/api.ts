@@ -37,6 +37,8 @@ export interface OrderPayload {
   delivery_date: string;
   delivery_time: string;
   comment: string;
+  card_text: string;
+  is_anonymous: boolean;
   promo_code: string;
 }
 
@@ -50,4 +52,8 @@ export function checkPromo(code: string): Promise<{ code: string; discount_perce
 
 export function fetchMe(): Promise<{ name?: string; phone?: string; promo_code?: string; discount_percent?: number }> {
   return request('/api/me');
+}
+
+export function fetchFreshToday(): Promise<{ items?: string }> {
+  return request('/api/fresh-today');
 }

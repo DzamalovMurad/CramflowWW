@@ -226,3 +226,24 @@ func (r *Repository) ListRecentOrders(limit int) ([]model.Order, error) {
 func (r *Repository) UpdateOrderStatus(id uint, status string) error {
 	return r.DB.Model(&model.Order{}).Where("id = ?", id).Update("status", status).Error
 }
+
+// --- «Сегодня на базе» ---
+
+// UpsertFreshToday сохраняет список свежих цветов за дату (перезаписывает существующий).
+func (r *Repository) UpsertFreshToday(date, items string) error {
+	var f model.FreshToday
+	err := r.DB.Where("date = ?", date).First(&f).Error
+	if err != nil {
+		return r.DB.Create(&model.FreshToday{Date: date, Items: items}).Error
+	}
+	f.Items = items
+	return r.DB.Save(&f).Error
+}
+
+func (r *Repository) GetFreshToday(date string) (*model.FreshToday, error) {
+	var f model.FreshToday
+	if err := r.DB.Where("date = ?", date).First(&f).Error; err != nil {
+		return nil, err
+	}
+	return &f, nil
+}

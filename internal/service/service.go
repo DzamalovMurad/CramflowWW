@@ -37,6 +37,8 @@ type OrderInput struct {
 	DeliveryDate    string           `json:"delivery_date"`
 	DeliveryTime    string           `json:"delivery_time"`
 	Comment         string           `json:"comment"`
+	CardText        string           `json:"card_text"`    // текст открытки, до 300 символов
+	IsAnonymous     bool             `json:"is_anonymous"` // анонимная доставка
 	PromoCode       string           `json:"promo_code"`
 	// TelegramID заполняется хендлером из initData, не клиентом.
 	TelegramID int64 `json:"-"`
@@ -58,6 +60,10 @@ func (s *Service) CreateOrder(in OrderInput) (*model.Order, error) {
 	in.DeliveryAddress = strings.TrimSpace(in.DeliveryAddress)
 	in.DeliveryDate = strings.TrimSpace(in.DeliveryDate)
 	in.Comment = strings.TrimSpace(in.Comment)
+	in.CardText = strings.TrimSpace(in.CardText)
+	if len([]rune(in.CardText)) > 300 {
+		return nil, invalid("текст открытки — не более 300 символов")
+	}
 
 	if len(in.Items) == 0 {
 		return nil, invalid("корзина пуста")
@@ -145,6 +151,8 @@ func (s *Service) CreateOrder(in OrderInput) (*model.Order, error) {
 		DeliveryTime:    in.DeliveryTime,
 		PromoCodeID:     promoID,
 		Comment:         in.Comment,
+		CardText:        in.CardText,
+		IsAnonymous:     in.IsAnonymous,
 		Status:          model.StatusNew,
 		Items:           items,
 	}

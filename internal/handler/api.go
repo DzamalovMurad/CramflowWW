@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dzamalovmurad/cramflowww/internal/repository"
 	"github.com/dzamalovmurad/cramflowww/internal/service"
@@ -31,6 +32,7 @@ func (a *API) Routes() http.Handler {
 	mux.HandleFunc("GET /api/orders/{id}", a.getOrder)
 	mux.HandleFunc("GET /api/promo/{code}", a.getPromo)
 	mux.HandleFunc("GET /api/me", a.getMe)
+	mux.HandleFunc("GET /api/fresh-today", a.getFreshToday)
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -161,6 +163,16 @@ func (a *API) getMe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// getFreshToday — блок «Сегодня на базе» для главной. Пустой объект, если записи за сегодня нет.
+func (a *API) getFreshToday(w http.ResponseWriter, _ *http.Request) {
+	fresh, err := a.Repo.GetFreshToday(time.Now().Format("2006-01-02"))
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": fresh.Items})
 }
 
 func (a *API) serveSPA(w http.ResponseWriter, r *http.Request) {

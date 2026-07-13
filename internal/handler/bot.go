@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -30,9 +31,10 @@ type Bot struct {
 }
 
 type wizard struct {
-	mode      string // add | edit_text | edit_variants | edit_photos
+	mode      string // add | edit_text | edit_variants | edit_photos | fresh | order_photo
 	step      string // для add: name → photos → desc → variants → category → confirm
 	productID uint   // для edit
+	orderID   uint   // для order_photo
 	field     string // name | description
 	draft     draft
 }
@@ -116,7 +118,15 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 				"/hide — скрыть/показать товар\n"+
 				"/delete — удалить товар\n"+
 				"/orders — последние заказы\n"+
+				"/fresh — что сегодня свежее на базе\n"+
 				"/cancel — прервать текущее действие")
+		case "fresh":
+			if items := strings.TrimSpace(msg.CommandArguments()); items != "" {
+				b.saveFresh(msg.Chat.ID, items)
+				return
+			}
+			b.wizards[msg.Chat.ID] = &wizard{mode: "fresh"}
+			b.send(msg.Chat.ID, "🌷 Что сегодня свежее? Пришлите одной строкой, например:\nпионы, ранункулюсы, эустома")
 		case "add":
 			b.wizards[msg.Chat.ID] = &wizard{mode: "add", step: "name"}
 			b.send(msg.Chat.ID, "🌸 Новый товар.\n\nШаг 1/5 — введите название:")
@@ -211,6 +221,13 @@ func parseVariants(s string) []model.ProductVariant {
 func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 	chatID := msg.Chat.ID
 
+	// Фото готового букета: пересылаем клиенту по file_id, без скачивания.
+	if len(msg.Photo) > 0 && w.mode == "order_photo" {
+		delete(b.wizards, chatID)
+		b.sendBouquetPhoto(chatID, w.orderID, msg.Photo[len(msg.Photo)-1].FileID)
+		return
+	}
+
 	// Приём фото (шаг photos в /add или режим замены фото в /edit).
 	if len(msg.Photo) > 0 {
 		if (w.mode == "add" && w.step == "photos") || w.mode == "edit_photos" {
@@ -241,6 +258,11 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 	switch w.mode {
 	case "add":
 		b.wizardAddText(chatID, w, text)
+	case "fresh":
+		delete(b.wizards, chatID)
+		b.saveFresh(chatID, text)
+	case "order_photo":
+		b.send(chatID, "Жду фото букета. Или /cancel для отмены.")
 	case "edit_text":
 		p, err := b.repo.GetProduct(w.productID)
 		if err != nil {
@@ -540,6 +562,10 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 		b.send(chatID, fmt.Sprintf("Заказ #%d → %s", id, model.StatusLabels[status]))
+		// Уведомляем клиента о смене статуса.
+		if msg, ok := model.ClientStatusMessages[status]; ok && msg != "" {
+			b.notifyCustomerStatus(id, status, msg)
+		}
 
 	case "ostmenu": // выбор статуса
 		id := argAt(1)
@@ -695,3 +721,57 @@ func orDash(s string) string {
 	}
 	return s
 }
+
+// saveFresh — сохраняет список свежих цветов на сегодня.
+func (b *Bot) saveFresh(chatID int64, items string) {
+	items = strings.TrimSpace(items)
+	if items == "" {
+		b.send(chatID, "Не получилось. Пришлите список цветов.")
+		return
+	}
+	today := time.Now().Format("2006-01-02")
+	if err := b.repo.UpsertFreshToday(today, items); err != nil {
+		log.Printf("save fresh: %v", err)
+		b.send(chatID, "Ошибка сохранения: "+err.Error())
+		return
+	}
+	b.send(chatID, "✅ «Сегодня на базе»: "+items)
+}
+
+// sendBouquetPhoto — отправляет фото готового букета клиенту по заказу.
+func (b *Bot) sendBouquetPhoto(chatID int64, orderID uint, fileID string) {
+	o, err := b.repo.GetOrder(orderID)
+	if err != nil {
+		log.Printf("get order: %v", err)
+		b.send(chatID, "Ошибка: заказ не найден.")
+		return
+	}
+
+	// Отправляем фото клиенту (по его TelegramID).
+	if o.User.TelegramID != 0 {
+		photo := tgbotapi.NewPhoto(o.User.TelegramID, tgbotapi.FileID(fileID))
+		photo.Caption = fmt.Sprintf("🌸 Ваш букет к заказу #%d готов!", o.ID)
+		if _, err := b.api.Send(photo); err != nil {
+			log.Printf("send photo to customer: %v", err)
+			b.send(chatID, "Не удалось отправить фото клиенту.")
+			return
+		}
+	}
+
+	b.send(chatID, fmt.Sprintf("✅ Фото букета отправлено клиенту заказа #%d.", o.ID))
+}
+
+// notifyCustomerStatus — отправляет клиенту уведомление о смене статуса заказа.
+func (b *Bot) notifyCustomerStatus(orderID uint, status, msgTemplate string) {
+	o, err := b.repo.GetOrder(orderID)
+	if err != nil {
+		log.Printf("get order for status notification: %v", err)
+		return
+	}
+	if o.User.TelegramID == 0 {
+		return // Нет способа отправить сообщение, если клиент не сохранён.
+	}
+	msg := fmt.Sprintf(msgTemplate, o.ID)
+	b.send(o.User.TelegramID, msg)
+}
+

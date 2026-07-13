@@ -8,39 +8,40 @@
    Шрифтовые файлы — public/fonts (подключены в index.html).
    ============================================================ */
 :root {
-  /* Палитра (светлая тема) */
-  --c-bg: #ffffff; /* фон страницы */
+  /* Палитра (светлая тема) — тёплый минимализм */
+  --c-bg: #FAF8F5; /* тёплое молоко */
   --c-surface: #ffffff; /* поверхности */
-  --c-tile: #f5f5f5; /* плитки под фото, поля форм, вторичные кнопки */
-  --c-text: #111111; /* основной текст */
-  --c-muted: #8a8a8a; /* вторичный текст */
-  --c-border: #ededed; /* тонкие линии */
-  --c-accent: #a7fc00; /* фирменный акцент */
-  --c-accent-2: #6faa00; /* акцент-текст на светлом фоне */
-  --c-on-accent: #111111; /* текст на акцентных кнопках */
+  --c-tile: #f5f2ed; /* плитки под фото, поля форм, вторичные кнопки */
+  --c-text: #1f1e1b; /* основной текст */
+  --c-muted: #8a8784; /* вторичный текст */
+  --c-border: #EAE6DF; /* тонкие линии */
+  --c-accent: #7C9A7E; /* шалфей / премиум-акцент */
+  --c-accent-2: #6d8970; /* акцент-текст на светлом фоне */
+  --c-on-accent: #ffffff; /* текст на акцентных кнопках */
 
-  /* Типографика: один строгий гротеск на всё */
+  /* Типографика */
   --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Cormorant Garamond', 'Georgia', serif; /* заголовки */
 
   /* Геометрия */
-  --radius-card: 14px; /* плитки фото, поля, карточки */
-  --radius-button: 12px; /* кнопки */
-  --shadow-card: 0 4px 8px rgba(0, 0, 0, 0.1);
-  --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.14);
+  --radius-card: 18px; /* плитки фото, поля, карточки */
+  --radius-button: 9999px; /* кнопки (pill) */
+  --shadow-card: 0 4px 8px rgba(0, 0, 0, 0.06);
+  --shadow-float: 0 8px 24px rgba(30, 30, 28, 0.06);
 }
 
 :root[data-theme='dark'] {
-  --c-bg: #0e0e0e;
-  --c-surface: #141414;
-  --c-tile: #1c1c1c;
-  --c-text: #f4f4f2;
-  --c-muted: #8f8f8f;
-  --c-border: #262626;
-  --c-accent: #a7fc00;
-  --c-accent-2: #b5ff2e;
-  --c-on-accent: #111111;
-  --shadow-card: 0 4px 8px rgba(0, 0, 0, 0.5);
-  --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.6);
+  --c-bg: #191816;
+  --c-surface: #23201d;
+  --c-tile: #2d2a27;
+  --c-text: #f4f2f0;
+  --c-muted: #9a9793;
+  --c-border: #3a372f;
+  --c-accent: #93AF95;
+  --c-accent-2: #a4bc9f;
+  --c-on-accent: #ffffff;
+  --shadow-card: 0 4px 8px rgba(0, 0, 0, 0.4);
+  --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
 /* ============================================================ */

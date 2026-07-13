@@ -82,6 +82,9 @@ export default function ProductPage() {
         {product.description && (
           <p className="mt-3 text-sm leading-relaxed text-muted">{product.description}</p>
         )}
+        <p className="mt-4 border-l-2 border-accent/30 pl-3 text-xs leading-relaxed text-muted">
+          {content.product.availabilityNote}
+        </p>
 
         <p className="label mb-2.5 mt-7">{content.product.sizeLabel}</p>
         <div className="flex flex-wrap gap-2">

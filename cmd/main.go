@@ -39,6 +39,7 @@ func main() {
 	if err := db.AutoMigrate(
 		&model.Product{}, &model.ProductVariant{}, &model.ProductImage{},
 		&model.PromoCode{}, &model.User{}, &model.Order{}, &model.OrderItem{},
+		&model.FreshToday{},
 	); err != nil {
 		log.Fatalf("миграции: %v", err)
 	}
