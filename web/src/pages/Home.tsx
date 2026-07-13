@@ -57,7 +57,7 @@ export default function Home() {
           </p>
           <Link
             to="/catalog"
-            className="animate-fade-up mt-6 block w-full rounded-button bg-accent py-4 text-center text-[15px] font-bold lowercase text-on-accent transition-transform active:scale-[0.98]"
+            className="btn-warm animate-fade-up mt-6 block w-full rounded-button py-4 text-center text-[15px] font-bold lowercase text-on-accent"
             style={{ animationDelay: '160ms' }}
           >
             {content.home.cta}

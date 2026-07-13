@@ -117,7 +117,7 @@ export default function ProductPage() {
         <button
           onClick={addToCart}
           disabled={!variant}
-          className="flex w-full items-center justify-between rounded-button bg-accent px-5 py-4 text-[15px] font-bold lowercase text-on-accent transition-transform active:scale-[0.98] disabled:opacity-50"
+          className="btn-warm flex w-full items-center justify-between rounded-button px-5 py-4 text-[15px] font-bold lowercase text-on-accent disabled:opacity-50"
         >
           <span>{content.product.addToCart}</span>
           <span>{formatPrice(total)}</span>

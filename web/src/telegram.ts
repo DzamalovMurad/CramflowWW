@@ -27,10 +27,8 @@ export function initDataHeader(): Record<string, string> {
 }
 
 function applyScheme() {
-  const dark = tg()?.colorScheme === 'dark';
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-  tg()?.setHeaderColor?.(dark ? '#101010' : '#FFFFFF');
-  tg()?.setBackgroundColor?.(dark ? '#101010' : '#FFFFFF');
+  // Тему применяет модуль theme.ts: выбор пользователя важнее темы Telegram.
+  import('./theme').then(({ currentTheme, applyTheme }) => applyTheme(currentTheme()));
 }
 
 export function initTelegram() {

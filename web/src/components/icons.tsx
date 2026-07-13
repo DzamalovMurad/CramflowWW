@@ -56,3 +56,20 @@ export function IconCheck({ size = 22 }: { size?: number }) {
     </svg>
   );
 }
+
+export function IconSun({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...base}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5 5l1.6 1.6M17.4 17.4L19 19M19 5l-1.6 1.6M6.6 17.4L5 19" />
+    </svg>
+  );
+}
+
+export function IconMoon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...base}>
+      <path d="M20 13.2A8.1 8.1 0 0 1 10.8 4a8.1 8.1 0 1 0 9.2 9.2Z" />
+    </svg>
+  );
+}

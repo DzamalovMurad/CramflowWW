@@ -20,10 +20,10 @@ func New(db *gorm.DB) *Repository {
 
 // Значения быстрых фильтров каталога.
 const (
-	FilterPopular = "popular" // 🔥 Популярное — по числу проданных единиц
-	FilterNew     = "new"     // 🆕 Новинки — добавлены за последние 14 дней
-	FilterToday   = "today"   // 🚚 Доставка сегодня — все активные товары (доставка в тот же день)
-	FilterBudget  = "budget"  // 💰 До 3000 ₽ — минимальный вариант не дороже 3000
+	FilterPopular  = "popular"  // 🔥 Популярное — по числу проданных единиц
+	FilterNew      = "new"      // 🆕 Новинки — добавлены за последние 14 дней
+	FilterPreorder = "preorder" // 📅 Предзаказ — любой букет к выбранной дате и времени
+	FilterBudget   = "budget"   // 💰 До 3000 ₽ — минимальный вариант не дороже 3000
 )
 
 func (r *Repository) ListProducts(category, filter string) ([]model.Product, error) {
@@ -45,9 +45,8 @@ func (r *Repository) ListProducts(category, filter string) ([]model.Product, err
 			FROM order_items oi
 			JOIN product_variants v ON v.id = oi.variant_id
 			WHERE v.product_id = products.id) DESC`)
-	case FilterToday:
-		// Свойства «доставка сегодня» у товара нет — считаем, что доставляем
-		// в тот же день всё, что есть в каталоге (решение зафиксировано в README).
+	case FilterPreorder:
+		// Предзаказ доступен для всего каталога: дату и время клиент выбирает в checkout.
 	}
 
 	q = q.Order("products.created_at DESC")

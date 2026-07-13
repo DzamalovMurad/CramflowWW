@@ -17,14 +17,14 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
       className="animate-fade-up"
       style={{ animationDelay: `${Math.min(index * 45, 300)}ms` }}
     >
-      <Link to={`/product/${product.id}`} className="block">
-        <div className="aspect-[4/5] w-full overflow-hidden rounded-card bg-tile">
+      <Link to={`/product/${product.id}`} className="group block transition-transform duration-200 active:scale-[0.97]">
+        <div className="aspect-[4/5] w-full overflow-hidden rounded-card bg-tile shadow-card">
           {product.image && (
             <img
               src={product.image}
               alt={product.name}
               loading="lazy"
-              className="h-full w-full object-cover"
+              className="h-full w-full object-cover transition-transform duration-500 group-active:scale-105"
             />
           )}
         </div>

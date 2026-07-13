@@ -8,7 +8,7 @@ export const content = {
 
   home: {
     title: 'цветы, которые хочется дарить',
-    subtitle: 'свежие букеты, собранные вручную. доставка сегодня.',
+    subtitle: 'свежие букеты, собранные вручную. предзаказ к нужному времени.',
     cta: 'перейти в каталог',
   },
 
@@ -93,6 +93,6 @@ export const categoryLabels: Record<string, string> = {
 export const filterLabels: { id: string; label: string }[] = [
   { id: 'popular', label: 'популярное' },
   { id: 'new', label: 'новинки' },
-  { id: 'today', label: 'доставка сегодня' },
+  { id: 'preorder', label: 'предзаказ' },
   { id: 'budget', label: 'до 3 000 ₽' },
 ];

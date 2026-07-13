@@ -300,7 +300,7 @@ export default function Checkout() {
         <button
           type="submit"
           disabled={submitting || !deliveryTime}
-          className="w-full rounded-button bg-accent py-4 text-[15px] font-bold lowercase text-on-accent transition-transform active:scale-[0.98] disabled:opacity-50"
+          className="btn-warm w-full rounded-button py-4 text-[15px] font-bold lowercase text-on-accent disabled:opacity-50"
         >
           {submitting ? c.submitting : c.submit}
         </button>

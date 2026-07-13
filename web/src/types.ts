@@ -69,7 +69,7 @@ export const CATEGORIES = [
 export const FILTERS = [
   { id: 'popular', label: '🔥 Популярное' },
   { id: 'new', label: '🆕 Новинки' },
-  { id: 'today', label: '🚚 Доставка сегодня' },
+  { id: 'preorder', label: '📅 Предзаказ' },
   { id: 'budget', label: '💰 До 3000 ₽' },
 ] as const;
 

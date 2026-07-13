@@ -32,7 +32,9 @@ export default function App() {
   }, [location.pathname]);
 
   return (
-    <div className="mx-auto min-h-screen max-w-md bg-page font-sans text-ink">
+    <div className="mx-auto min-h-screen max-w-md font-sans text-ink">
+      <div className="ambient" aria-hidden />
+      <div className="grain" aria-hidden />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/catalog" element={<Catalog />} />
