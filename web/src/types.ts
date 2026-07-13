@@ -74,7 +74,7 @@ export const FILTERS = [
 ] as const;
 
 /** Способы доставки: точное время выбирается отдельным полем (окно 9:00–21:00). */
-export const DELIVERY_MODES = ['экспресс', 'в течение часа', 'ко времени'] as const;
+export const DELIVERY_MODES = ['в течение часа', 'ко времени'] as const;
 export type DeliveryMode = (typeof DELIVERY_MODES)[number];
 
 export function formatPrice(p: number): string {

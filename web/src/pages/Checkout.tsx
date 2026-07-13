@@ -164,7 +164,7 @@ export default function Checkout() {
         </Field>
 
         <Field label={c.time}>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {DELIVERY_MODES.map((m) => (
               <button
                 type="button"

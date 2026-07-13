@@ -14,8 +14,8 @@ import (
 	"github.com/dzamalovmurad/cramflowww/internal/repository"
 )
 
-// Доставка ежедневно с 9:00 до 21:00: экспресс, в течение часа или к точному времени («к 15:30»).
-var DeliveryOptions = []string{"экспресс", "в течение часа"}
+// Доставка ежедневно с 9:00 до 21:00: в течение часа или к точному времени («к 15:30»).
+var DeliveryOptions = []string{"в течение часа"}
 
 var deliveryAtRe = regexp.MustCompile(`^к ([0-2]\d):([0-5]\d)$`)
 
