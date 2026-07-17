@@ -53,6 +53,8 @@ type Product struct {
 	Description string `json:"description"`
 	Category    string `gorm:"not null;index" json:"category"`
 	IsHidden    bool   `gorm:"not null;default:false;index" json:"is_hidden"`
+	IsHit       bool   `gorm:"not null;default:false" json:"is_hit"` // бейдж «ХИТ»
+	Stock       int    `gorm:"not null;default:0" json:"stock"`      // остаток (0 = не показывать «осталось N»)
 	CreatedAt   time.Time `json:"created_at"`
 
 	Variants []ProductVariant `gorm:"constraint:OnDelete:CASCADE" json:"variants,omitempty"`
@@ -64,6 +66,7 @@ type ProductVariant struct {
 	ProductID uint `gorm:"not null;index" json:"product_id"`
 	Quantity  int  `gorm:"not null" json:"quantity"` // кол-во цветов в букете
 	Price     int  `gorm:"not null" json:"price"`    // цена в рублях
+	OldPrice  int  `gorm:"not null;default:0" json:"old_price"` // цена до скидки (0 = без скидки)
 }
 
 type ProductImage struct {

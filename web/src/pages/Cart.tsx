@@ -83,7 +83,7 @@ export default function Cart() {
         </div>
         <button
           onClick={() => navigate('/checkout')}
-          className="btn-warm w-full rounded-button py-4 text-[15px] font-bold lowercase text-on-accent"
+          className="btn-accent w-full rounded-button py-4 text-[15px] font-bold lowercase text-on-accent"
         >
           {content.cart.checkout}
         </button>

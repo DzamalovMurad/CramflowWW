@@ -6,24 +6,26 @@ interface Props {
   onSelect: (filter: string) => void;
 }
 
-/** Быстрые фильтры: серые плитки, активный — с лаймовой точкой. Комбинируются с категорией. */
+/** Быстрые фильтры (стиль Bunch): капсом-таблетки, активный — неоновая заливка. */
 export default function FilterPills({ selected, onSelect }: Props) {
+  const pills = [{ id: '', label: 'все цветы' }, ...filterLabels];
   return (
     <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 pb-3">
-      {filterLabels.map(({ id, label }) => {
+      {pills.map(({ id, label }) => {
         const active = selected === id;
         return (
           <button
-            key={id}
+            key={id || 'all'}
             onClick={() => {
               haptic('light');
-              onSelect(active ? '' : id);
+              onSelect(id);
             }}
-            className={`flex items-center gap-1.5 whitespace-nowrap rounded-button px-3.5 py-2 text-[13px] font-medium lowercase transition-colors ${
-              active ? 'bg-tile text-ink' : 'bg-tile/60 text-muted'
+            className={`whitespace-nowrap rounded-button border px-3.5 py-2 text-[12px] font-bold uppercase tracking-wide transition-colors ${
+              active
+                ? 'border-transparent bg-accent text-on-accent'
+                : 'border-line bg-surface text-muted'
             }`}
           >
-            {active && <span className="h-1.5 w-1.5 rounded-full bg-accent-2" />}
             {label}
           </button>
         );

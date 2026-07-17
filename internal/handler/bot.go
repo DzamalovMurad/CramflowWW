@@ -31,7 +31,7 @@ type Bot struct {
 }
 
 type wizard struct {
-	mode      string // add | edit_text | edit_variants | edit_photos | fresh | order_photo
+	mode      string // add | edit_text | edit_variants | edit_photos | edit_discount | edit_stock | fresh | order_photo
 	step      string // для add: name → photos → desc → variants → category → confirm
 	productID uint   // для edit
 	orderID   uint   // для order_photo
@@ -296,6 +296,38 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 		}
 		delete(b.wizards, chatID)
 		b.send(chatID, "✅ Изменения сохранены.")
+	case "edit_discount":
+		pct, err := strconv.Atoi(strings.TrimSpace(text))
+		if err != nil || pct < 0 || pct > 99 {
+			b.send(chatID, "Нужно число от 0 до 99. Попробуйте ещё раз или /cancel.")
+			return
+		}
+		if err := b.repo.SetProductDiscount(w.productID, pct); err != nil {
+			b.send(chatID, "Ошибка сохранения: "+err.Error())
+			return
+		}
+		delete(b.wizards, chatID)
+		if pct == 0 {
+			b.send(chatID, "✅ Скидка убрана.")
+		} else {
+			b.send(chatID, fmt.Sprintf("✅ Скидка −%d%% включена, на витрине появится бейдж.", pct))
+		}
+	case "edit_stock":
+		n, err := strconv.Atoi(strings.TrimSpace(text))
+		if err != nil || n < 0 || n > 9999 {
+			b.send(chatID, "Нужно число от 0 до 9999. Попробуйте ещё раз или /cancel.")
+			return
+		}
+		if err := b.repo.SetProductStock(w.productID, n); err != nil {
+			b.send(chatID, "Ошибка сохранения: "+err.Error())
+			return
+		}
+		delete(b.wizards, chatID)
+		if n == 0 {
+			b.send(chatID, "✅ Бейдж «осталось N» скрыт.")
+		} else {
+			b.send(chatID, fmt.Sprintf("✅ Остаток %d — бейдж появится, когда ≤ 5.", n))
+		}
 	case "edit_photos":
 		b.send(chatID, "Отправьте фото (до 5 шт) или /done для завершения.")
 	}
@@ -455,6 +487,11 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 	case "edit": // выбор товара для редактирования
 		id := argAt(1)
+		p, _ := b.repo.GetProduct(id)
+		hitLabel := "⭐ Хит: выкл"
+		if p != nil && p.IsHit {
+			hitLabel = "⭐ Хит: вкл"
+		}
 		kb := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("Название", fmt.Sprintf("editf:%d:name", id)),
@@ -464,6 +501,11 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 				tgbotapi.NewInlineKeyboardButtonData("Цены", fmt.Sprintf("editf:%d:price", id)),
 				tgbotapi.NewInlineKeyboardButtonData("Категория", fmt.Sprintf("editf:%d:cat", id)),
 				tgbotapi.NewInlineKeyboardButtonData("Фото", fmt.Sprintf("editf:%d:photo", id)),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(hitLabel, fmt.Sprintf("editf:%d:hit", id)),
+				tgbotapi.NewInlineKeyboardButtonData("🏷 Скидка", fmt.Sprintf("editf:%d:disc", id)),
+				tgbotapi.NewInlineKeyboardButtonData("📦 Остаток", fmt.Sprintf("editf:%d:stock", id)),
 			),
 		)
 		b.sendKb(chatID, "Что меняем?", kb)
@@ -488,6 +530,27 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			b.send(chatID, "Отправьте новые фото (до 5 шт) — они заменят старые. Когда закончите — /done.")
 		case "cat":
 			b.sendKb(chatID, "Выберите новую категорию:", categoryKeyboard(fmt.Sprintf("editcat_%d", id)))
+		case "hit":
+			p, err := b.repo.GetProduct(id)
+			if err != nil {
+				b.send(chatID, "Товар не найден.")
+				return
+			}
+			if err := b.repo.SetProductHit(id, !p.IsHit); err != nil {
+				b.send(chatID, "Ошибка: "+err.Error())
+				return
+			}
+			if p.IsHit {
+				b.send(chatID, "⭐ Бейдж «ХИТ» убран.")
+			} else {
+				b.send(chatID, "⭐ Бейдж «ХИТ» включён.")
+			}
+		case "disc":
+			b.wizards[chatID] = &wizard{mode: "edit_discount", productID: id}
+			b.send(chatID, "Введите процент скидки (например 10). 0 — убрать скидку.")
+		case "stock":
+			b.wizards[chatID] = &wizard{mode: "edit_stock", productID: id}
+			b.send(chatID, "Введите остаток для бейджа «осталось N» (например 3). 0 — скрыть бейдж.")
 		}
 
 	case "hide":

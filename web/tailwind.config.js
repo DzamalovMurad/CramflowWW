@@ -20,6 +20,7 @@ export default {
       },
       borderRadius: {
         card: 'var(--radius-card)',
+        input: 'var(--radius-input)',
         button: 'var(--radius-button)',
       },
       boxShadow: {

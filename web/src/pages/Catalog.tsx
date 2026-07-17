@@ -8,7 +8,7 @@ import { fetchProduct, fetchProducts } from '../api';
 import { useCart } from '../cart';
 import { haptic } from '../telegram';
 import { content } from '../content';
-import type { ProductCard } from '../types';
+import { formatPrice, type ProductCard } from '../types';
 
 /** Каталог: категории + быстрые фильтры + editorial-сетка. */
 export default function Catalog() {
@@ -55,13 +55,24 @@ export default function Catalog() {
     haptic('success');
   };
 
+  const minPrice = products && products.length > 0 ? Math.min(...products.map((p) => p.price)) : 0;
+
   return (
-    <div className="pb-10">
+    <div className="pb-24">
       <Header title={content.catalog.title} />
       <div className="sticky top-14 z-10 border-b border-line bg-page/95 backdrop-blur">
         <CategoryChips selected={category} onSelect={(c) => updateParams('category', c)} />
         <FilterPills selected={filter} onSelect={(f) => updateParams('filter', f)} />
       </div>
+
+      {products !== null && products.length > 0 && (
+        <div className="flex items-baseline justify-between px-4 pb-1 pt-4">
+          <h2 className="display text-[22px]">{content.catalog.title}</h2>
+          <p className="label !text-[11px]">
+            {products.length} {content.catalog.count} · {content.catalog.priceFrom} {formatPrice(minPrice)}
+          </p>
+        </div>
+      )}
 
       {error && <p className="p-6 text-center text-sm lowercase text-muted">{error}</p>}
 

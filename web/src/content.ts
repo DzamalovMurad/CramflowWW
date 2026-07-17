@@ -16,6 +16,8 @@ export const content = {
     title: 'каталог',
     priceFrom: 'от',
     addToCart: 'в корзину',
+    deliveryToday: 'доставим сегодня',
+    count: 'товаров',
     empty: 'по этим условиям букетов не нашлось — попробуйте изменить фильтры',
   },
 
@@ -66,6 +68,19 @@ export const content = {
     total: 'итого',
     submit: 'подтвердить',
     submitting: 'отправляем…',
+  },
+
+  profile: {
+    title: 'профиль',
+    guest: 'вы ещё не оформляли заказов',
+    guestHint: 'выберите букет — и ваши данные сохранятся здесь',
+    name: 'имя',
+    phone: 'телефон',
+    promo: 'ваш промокод',
+    discount: 'скидка',
+    toCatalog: 'в каталог',
+    about: 'о проекте',
+    aboutText: 'cramflow — свежие авторские букеты с доставкой по москве. собираем вручную в день доставки.',
   },
 
   confirmation: {

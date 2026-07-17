@@ -3,7 +3,10 @@ export interface ProductCard {
   name: string;
   category: string;
   price: number; // минимальная цена
+  old_price?: number; // цена до скидки (для бейджа −N%)
   image: string;
+  is_hit?: boolean;
+  stock?: number; // остаток (для бейджа «осталось N»)
 }
 
 export interface ProductVariant {
@@ -11,6 +14,7 @@ export interface ProductVariant {
   product_id: number;
   quantity: number; // цветов в букете
   price: number;
+  old_price?: number; // цена до скидки
 }
 
 export interface ProductImage {
@@ -24,8 +28,16 @@ export interface Product {
   name: string;
   description: string;
   category: string;
+  is_hit?: boolean;
+  stock?: number;
   variants: ProductVariant[];
   images: ProductImage[];
+}
+
+/** Скидка в процентах по старой/новой цене (0, если скидки нет). */
+export function discountPercent(price: number, oldPrice?: number): number {
+  if (!oldPrice || oldPrice <= price) return 0;
+  return Math.round((1 - price / oldPrice) * 100);
 }
 
 export interface OrderItem {

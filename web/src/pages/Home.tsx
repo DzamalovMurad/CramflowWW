@@ -36,7 +36,7 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="pb-10">
+    <div className="pb-24">
       <Header />
 
       <section className="relative h-[68vh] min-h-[420px] overflow-hidden">
@@ -57,7 +57,7 @@ export default function Home() {
           </p>
           <Link
             to="/catalog"
-            className="btn-warm animate-fade-up mt-6 block w-full rounded-button py-4 text-center text-[15px] font-bold lowercase text-on-accent"
+            className="btn-accent animate-fade-up mt-6 block w-full rounded-button py-4 text-center text-[15px] font-bold lowercase text-on-accent"
             style={{ animationDelay: '160ms' }}
           >
             {content.home.cta}

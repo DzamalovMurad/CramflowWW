@@ -116,6 +116,36 @@ func (r *Repository) SetProductHidden(id uint, hidden bool) error {
 	return r.DB.Model(&model.Product{}).Where("id = ?", id).Update("is_hidden", hidden).Error
 }
 
+func (r *Repository) SetProductHit(id uint, hit bool) error {
+	return r.DB.Model(&model.Product{}).Where("id = ?", id).Update("is_hit", hit).Error
+}
+
+func (r *Repository) SetProductStock(id uint, stock int) error {
+	return r.DB.Model(&model.Product{}).Where("id = ?", id).Update("stock", stock).Error
+}
+
+// SetProductDiscount проставляет старую цену вариантов из текущей и процента скидки
+// (percent 0 — убрать скидку). Бейдж −N% на витрине считается по old_price/price.
+func (r *Repository) SetProductDiscount(id uint, percent int) error {
+	var variants []model.ProductVariant
+	if err := r.DB.Where("product_id = ?", id).Find(&variants).Error; err != nil {
+		return err
+	}
+	return r.DB.Transaction(func(tx *gorm.DB) error {
+		for _, v := range variants {
+			old := 0
+			if percent > 0 && percent < 100 {
+				old = v.Price * 100 / (100 - percent) // цена «до скидки»
+			}
+			if err := tx.Model(&model.ProductVariant{}).Where("id = ?", v.ID).
+				Update("old_price", old).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func (r *Repository) DeleteProduct(id uint) error {
 	return r.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("product_id = ?", id).Delete(&model.ProductVariant{}).Error; err != nil {

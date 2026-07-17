@@ -46,13 +46,16 @@ func (a *API) Routes() http.Handler {
 	return mux
 }
 
-// productCard — карточка каталога: минимальная цена и первое фото.
+// productCard — карточка каталога: минимальная цена, первое фото, бейджи.
 type productCard struct {
 	ID       uint   `json:"id"`
 	Name     string `json:"name"`
 	Category string `json:"category"`
 	Price    int    `json:"price"`
+	OldPrice int    `json:"old_price,omitempty"` // старая цена минимального варианта
 	Image    string `json:"image"`
+	IsHit    bool   `json:"is_hit"`
+	Stock    int    `json:"stock,omitempty"` // остаток для бейджа «осталось N»
 }
 
 func (a *API) listProducts(w http.ResponseWriter, r *http.Request) {
@@ -67,9 +70,10 @@ func (a *API) listProducts(w http.ResponseWriter, r *http.Request) {
 
 	cards := make([]productCard, 0, len(products))
 	for _, p := range products {
-		card := productCard{ID: p.ID, Name: p.Name, Category: p.Category}
+		card := productCard{ID: p.ID, Name: p.Name, Category: p.Category, IsHit: p.IsHit, Stock: p.Stock}
 		if len(p.Variants) > 0 {
 			card.Price = p.Variants[0].Price // варианты отсортированы по цене
+			card.OldPrice = p.Variants[0].OldPrice
 		}
 		if len(p.Images) > 0 {
 			card.Image = p.Images[0].URL

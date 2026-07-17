@@ -8,59 +8,52 @@
    Шрифтовые файлы — public/fonts (подключены в index.html).
    ============================================================ */
 :root {
-  /* Палитра (светлая тема) — тёплый минимализм */
-  --c-bg: #FBF8F3; /* тёплое молоко, нежнее чистого белого */
-  --c-surface: #FFFDF9; /* поверхности — смягчённый белый */
-  --c-tile: #F3EEE5; /* плитки под фото, поля форм, вторичные кнопки */
-  --c-text: #262420; /* основной текст — тёплый графит */
-  --c-muted: #7d766a; /* вторичный текст, тёплый (контраст AA на молочном фоне) */
-  --c-border: #E8E1D4; /* тонкие линии */
-  --c-accent: #6F9B74; /* шалфей, чуть насыщеннее */
-  --c-accent-2: #5C8A62; /* акцент-текст на светлом фоне */
-  --c-on-accent: #ffffff; /* текст на акцентных кнопках */
+  /* Палитра (светлая тема) — энергичный неон на чистом фоне */
+  --c-bg: #F1F1EE; /* светлый нейтральный фон */
+  --c-surface: #FFFFFF; /* карточки, поверхности */
+  --c-tile: #ECECE8; /* плитки под фото, поля форм, вторичные кнопки */
+  --c-text: #0E0F0C; /* основной текст — почти чёрный */
+  --c-muted: #86867E; /* вторичный текст */
+  --c-border: #E6E6E1; /* тонкие линии */
+  --c-accent: #83F70E; /* неоновый лайм (мягче #80FF00 на 2–3%) */
+  --c-accent-2: #4E9A00; /* тёмный лайм для текста на светлом (контраст AA) */
+  --c-on-accent: #0E0F0C; /* чёрный текст на неоновых плашках */
 
   /* Типографика */
   --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-display: 'Cormorant Garamond', 'Georgia', serif; /* заголовки */
+  --font-display: 'Inter', system-ui, sans-serif; /* заголовки — жирный гротеск */
 
   /* Геометрия */
-  --radius-card: 18px; /* плитки фото, поля, карточки */
-  --radius-button: 9999px; /* кнопки (pill) */
-  --shadow-card: 0 1px 2px rgba(46, 38, 28, 0.05), 0 12px 32px -12px rgba(46, 38, 28, 0.14);
-  --shadow-float: 0 8px 24px rgba(46, 38, 28, 0.08);
+  --radius-card: 20px; /* карточки, плитки фото */
+  --radius-input: 14px; /* поля форм, вторичные кнопки */
+  --radius-button: 9999px; /* главные кнопки (pill) */
+  --shadow-card: 0 1px 2px rgba(20, 20, 14, 0.04), 0 10px 28px -14px rgba(20, 20, 14, 0.12);
+  --shadow-float: 0 6px 20px -6px rgba(20, 20, 14, 0.14);
 
-  /* Объёмные CTA: градиент сверху-светлее + цветная тень */
-  --btn-grad-top: #7FA983;
-  --btn-shadow: 0 10px 22px -8px rgba(111, 155, 116, 0.55);
-  --btn-inset: inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  /* Акцентная кнопка/плашка */
+  --accent-shadow: 0 8px 20px -8px rgba(131, 247, 14, 0.5);
 
-  /* Живой фон: два тёплых пятна */
-  --blob-a: rgba(111, 155, 116, 0.16); /* шалфей */
-  --blob-b: rgba(214, 166, 112, 0.14); /* тёплая карамель */
-  --grain-opacity: 0.028;
+  /* Тон фонового свечения (очень мягкое, статичное — без нагрузки) */
+  --glow: rgba(131, 247, 14, 0.06);
+  --grain-opacity: 0.02;
 }
 
-/* Ночная тема: «вечер с какао» — тёплый шоколадный полумрак */
+/* Ночная тема — «неон в темноте»: глубокий графит с лаймовыми акцентами */
 :root[data-theme='dark'] {
-  --c-bg: #1b1613;
-  --c-surface: #251e18;
-  --c-tile: #2e261e;
-  --c-text: #f5efe7;
-  --c-muted: #a2988a;
-  --c-border: #3e362b;
-  --c-accent: #8fb794;
-  --c-accent-2: #a3c6a6;
-  --c-on-accent: #17211a;
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 14px 36px -12px rgba(0, 0, 0, 0.55);
-  --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.5);
-
-  --btn-grad-top: #9cc2a1;
-  --btn-shadow: 0 10px 24px -8px rgba(20, 40, 24, 0.7);
-  --btn-inset: inset 0 1px 0 rgba(255, 255, 255, 0.22);
-
-  --blob-a: rgba(143, 183, 148, 0.1);
-  --blob-b: rgba(196, 141, 84, 0.1);
-  --grain-opacity: 0.05;
+  --c-bg: #0C0D0A;
+  --c-surface: #161813;
+  --c-tile: #1E211A;
+  --c-text: #F2F4EC;
+  --c-muted: #9A9E90;
+  --c-border: #282C21;
+  --c-accent: #8BFF1F; /* чуть ярче на тёмном */
+  --c-accent-2: #B4FF5C; /* лаймовый текст на тёмном */
+  --c-on-accent: #0C0D0A;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 14px 34px -16px rgba(0, 0, 0, 0.7);
+  --shadow-float: 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+  --accent-shadow: 0 8px 24px -8px rgba(139, 255, 31, 0.35);
+  --glow: rgba(139, 255, 31, 0.07);
+  --grain-opacity: 0.035;
 }
 
 /* ============================================================ */
@@ -87,20 +80,22 @@ body {
   padding-top: env(safe-area-inset-top);
 }
 
-/* Крупные заголовки: жирный строчный гротеск, плотный интерлиньяж */
+/* Крупные заголовки: очень жирный гротеск, плотный интерлиньяж */
 .display {
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.05;
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
   text-transform: lowercase;
 }
 
-/* Подписи секций */
+/* Подписи секций — капсом с разрядкой, как у Bunch */
 .label {
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 700;
   color: var(--c-muted);
-  text-transform: lowercase;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 /* Горизонтальные ленты (чипы, галерея) — без скроллбара */
@@ -162,7 +157,7 @@ body {
 }
 
 /* ============================================================
-   УЮТ: живой фон, зерно, объёмные кнопки, смена темы
+   КОМПОНЕНТЫ: фон, кнопки, бейджи, карточки, нижнее меню
    ============================================================ */
 
 /* Плавное перетекание цветов при смене темы (класс вешается на 600мс) */
@@ -171,71 +166,113 @@ body {
 .theme-anim *::before,
 .theme-anim *::after {
   transition:
-    background-color 0.5s ease,
-    color 0.5s ease,
-    border-color 0.5s ease,
-    box-shadow 0.5s ease !important;
+    background-color 0.45s ease,
+    color 0.45s ease,
+    border-color 0.45s ease,
+    box-shadow 0.45s ease !important;
 }
 
-/* Живой фон: два мягких пятна медленно дышат за контентом.
-   Без blur-фильтра — прозрачный radial-gradient дешевле для мобильных. */
+/* Фон: статичное мягкое свечение сверху — без анимации, нулевая нагрузка на GPU */
 .ambient {
   position: fixed;
   inset: 0;
   z-index: -1;
-  overflow: hidden;
   pointer-events: none;
-}
-.ambient::before,
-.ambient::after {
-  content: '';
-  position: absolute;
-  width: 75vmax;
-  height: 75vmax;
-  border-radius: 42% 58% 61% 39% / 45% 41% 59% 55%;
-  will-change: transform;
-}
-.ambient::before {
-  top: -28vmax;
-  right: -22vmax;
-  background: radial-gradient(closest-side, var(--blob-a), transparent 72%);
-  animation: drift-a 26s ease-in-out infinite alternate;
-}
-.ambient::after {
-  bottom: -30vmax;
-  left: -24vmax;
-  background: radial-gradient(closest-side, var(--blob-b), transparent 72%);
-  animation: drift-b 32s ease-in-out infinite alternate;
-}
-@keyframes drift-a {
-  from { transform: translate(0, 0) rotate(0deg) scale(1); }
-  to { transform: translate(-6vmax, 7vmax) rotate(24deg) scale(1.12); }
-}
-@keyframes drift-b {
-  from { transform: translate(0, 0) rotate(0deg) scale(1.08); }
-  to { transform: translate(7vmax, -6vmax) rotate(-20deg) scale(1); }
+  background:
+    radial-gradient(120% 55% at 50% -10%, var(--glow), transparent 60%);
 }
 
-/* Лёгкое зерно поверх всего — «бумажная» материальность */
+/* Едва заметное зерно — «материальность», статичное */
 .grain {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 60;
   pointer-events: none;
   opacity: var(--grain-opacity);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* Объёмная акцентная кнопка: градиент, внутренний блик, цветная тень */
-.btn-warm {
-  background-image: linear-gradient(180deg, var(--btn-grad-top), var(--c-accent));
-  box-shadow: var(--btn-inset), var(--btn-shadow);
-  transition: transform 0.15s ease, box-shadow 0.25s ease, filter 0.25s ease;
+/* Главная акцентная кнопка: плоский неон, чёрный текст, мягкая цветная тень */
+.btn-accent {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+  box-shadow: var(--accent-shadow);
+  transition: transform 0.15s ease, box-shadow 0.25s ease, filter 0.2s ease;
 }
-.btn-warm:active {
+.btn-accent:active {
   transform: scale(0.97);
-  filter: brightness(0.96);
-  box-shadow: var(--btn-inset), 0 4px 10px -4px rgba(46, 38, 28, 0.3);
+  filter: brightness(0.97);
+  box-shadow: 0 3px 10px -4px rgba(131, 247, 14, 0.4);
+}
+.btn-accent:disabled {
+  opacity: 0.5;
+  box-shadow: none;
+}
+
+/* Плавающая круглая «+» на карточке (добавить в корзину в один тап) */
+.fab-add {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+  box-shadow: 0 4px 14px -4px rgba(131, 247, 14, 0.6);
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.fab-add:active {
+  transform: scale(0.85);
+}
+
+/* Бейджи на фото товара */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1;
+  backdrop-filter: blur(6px);
+}
+.badge-hit {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+}
+.badge-sale {
+  background: rgba(14, 15, 12, 0.82);
+  color: #fff;
+}
+.badge-stock {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+}
+
+/* Вкладки категорий: активная — «таблетка» с инверсией */
+.tab {
+  position: relative;
+  white-space: nowrap;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  transition: color 0.2s ease;
+  color: var(--c-muted);
+}
+.tab-active {
+  color: var(--c-on-accent);
+}
+
+/* Нижнее меню-бар */
+.tabbar {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 28rem;
+  z-index: 40;
+  background: color-mix(in srgb, var(--c-surface) 88%, transparent);
+  backdrop-filter: blur(16px);
+  border-top: 1px solid var(--c-border);
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* Переключатель темы: солнце ⇄ луна с поворотом */
@@ -272,10 +309,6 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ambient::before,
-  .ambient::after {
-    animation: none;
-  }
   .animate-fade-up,
   .animate-fade-in,
   .animate-pop-in {

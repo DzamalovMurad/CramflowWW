@@ -7,7 +7,7 @@ import { fetchProduct } from '../api';
 import { useCart } from '../cart';
 import { haptic, tg } from '../telegram';
 import { content, categoryLabels } from '../content';
-import { formatPrice, type Product } from '../types';
+import { formatPrice, discountPercent, type Product } from '../types';
 
 /** Карточка товара: галерея, варианты-чипы, количество, нижняя кнопка с суммой. */
 export default function ProductPage() {
@@ -53,6 +53,9 @@ export default function ProductPage() {
 
   const variant = product.variants.find((v) => v.id === variantId) ?? product.variants[0];
   const total = (variant?.price ?? 0) * qty;
+  const totalOld = variant?.old_price ? variant.old_price * qty : 0;
+  const off = discountPercent(variant?.price ?? 0, variant?.old_price);
+  const lowStock = product.stock !== undefined && product.stock > 0 && product.stock <= 5;
 
   const addToCart = () => {
     if (!variant) return;
@@ -77,8 +80,13 @@ export default function ProductPage() {
       <Gallery images={product.images} alt={product.name} />
 
       <div className="p-5">
-        <p className="label">{categoryLabels[product.category] ?? product.category}</p>
-        <h1 className="display mt-1 text-[26px]">{product.name}</h1>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <p className="label !text-[11px]">{categoryLabels[product.category] ?? product.category}</p>
+          {product.is_hit && <span className="badge badge-hit">хит</span>}
+          {off > 0 && <span className="badge badge-sale">−{off}%</span>}
+          {lowStock && <span className="badge badge-stock">осталось {product.stock}</span>}
+        </div>
+        <h1 className="display mt-1.5 text-[26px]">{product.name}</h1>
         {product.description && (
           <p className="mt-3 text-sm leading-relaxed text-muted">{product.description}</p>
         )}
@@ -117,10 +125,15 @@ export default function ProductPage() {
         <button
           onClick={addToCart}
           disabled={!variant}
-          className="btn-warm flex w-full items-center justify-between rounded-button px-5 py-4 text-[15px] font-bold lowercase text-on-accent disabled:opacity-50"
+          className="btn-accent flex w-full items-center justify-between rounded-button px-5 py-4 text-[15px] font-bold lowercase text-on-accent disabled:opacity-50"
         >
           <span>{content.product.addToCart}</span>
-          <span>{formatPrice(total)}</span>
+          <span className="flex items-baseline gap-2">
+            {totalOld > 0 && (
+              <span className="text-[13px] font-medium opacity-60 line-through">{formatPrice(totalOld)}</span>
+            )}
+            {formatPrice(total)}
+          </span>
         </button>
       </div>
     </div>

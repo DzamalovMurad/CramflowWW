@@ -6,6 +6,8 @@ import ProductPage from './pages/Product';
 import Cart from './pages/Cart';
 import Checkout from './pages/Checkout';
 import Confirmation from './pages/Confirmation';
+import Profile from './pages/Profile';
+import TabBar from './components/TabBar';
 import { tg } from './telegram';
 
 export default function App() {
@@ -31,6 +33,10 @@ export default function App() {
     window.scrollTo(0, 0);
   }, [location.pathname]);
 
+  // Нижнее меню — на просмотровых экранах. Не в корзине (там свой нижний бар),
+  // оформлении, карточке товара.
+  const showTabBar = ['/', '/catalog', '/profile'].includes(location.pathname);
+
   return (
     <div className="mx-auto min-h-screen max-w-md font-sans text-ink">
       <div className="ambient" aria-hidden />
@@ -42,7 +48,9 @@ export default function App() {
         <Route path="/cart" element={<Cart />} />
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/confirmation/:id" element={<Confirmation />} />
+        <Route path="/profile" element={<Profile />} />
       </Routes>
+      {showTabBar && <TabBar />}
     </div>
   );
 }

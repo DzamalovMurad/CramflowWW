@@ -7,24 +7,25 @@ interface Props {
   onSelect: (category: string) => void;
 }
 
-/** Чипы категорий: строчные, монохром; активная — инверсия. Повторный тап снимает фильтр. */
+/** Вкладки категорий (стиль Bunch): «Все» + категории. Активная — чёрная таблетка. */
 export default function CategoryChips({ selected, onSelect }: Props) {
+  const tabs = [{ name: '', label: 'все' }, ...CATEGORIES.map((c) => ({ name: c.name, label: categoryLabels[c.name] ?? c.name }))];
   return (
-    <div className="no-scrollbar flex snap-x snap-mandatory gap-2 overflow-x-auto px-4 py-3">
-      {CATEGORIES.map(({ name }) => {
+    <div className="no-scrollbar flex snap-x snap-mandatory items-center gap-1.5 overflow-x-auto px-4 py-3">
+      {tabs.map(({ name, label }) => {
         const active = selected === name;
         return (
           <button
-            key={name}
+            key={name || 'all'}
             onClick={() => {
               haptic('light');
-              onSelect(active ? '' : name);
+              onSelect(name);
             }}
-            className={`snap-start whitespace-nowrap rounded-button border px-4 py-2 text-sm font-medium lowercase transition-colors ${
-              active ? 'border-ink bg-ink text-page' : 'border-line bg-page text-ink'
+            className={`tab snap-start rounded-button px-4 py-2 text-[15px] lowercase ${
+              active ? 'bg-ink !text-page' : ''
             }`}
           >
-            {categoryLabels[name] ?? name}
+            {label}
           </button>
         );
       })}
