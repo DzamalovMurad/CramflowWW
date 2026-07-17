@@ -17,10 +17,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export function fetchProducts(category: string, filter: string): Promise<ProductCard[]> {
+export function fetchProducts(category: string, filter: string, search = ''): Promise<ProductCard[]> {
   const params = new URLSearchParams();
   if (category) params.set('category', category);
   if (filter) params.set('filter', filter);
+  if (search) params.set('q', search);
   const qs = params.toString();
   return request(`/api/products${qs ? `?${qs}` : ''}`);
 }

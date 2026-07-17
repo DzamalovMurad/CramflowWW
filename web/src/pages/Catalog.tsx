@@ -10,11 +10,19 @@ import { haptic } from '../telegram';
 import { content } from '../content';
 import { formatPrice, type ProductCard } from '../types';
 
-/** Каталог: категории + быстрые фильтры + editorial-сетка. */
+/** Каталог: поиск + категории + быстрые фильтры + editorial-сетка. */
 export default function Catalog() {
   const [params, setParams] = useSearchParams();
   const category = params.get('category') ?? '';
   const filter = params.get('filter') ?? '';
+
+  // Поиск: локальный ввод мгновенный, запрос — с debounce 300мс.
+  const [query, setQuery] = useState('');
+  const [search, setSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(query.trim()), 300);
+    return () => clearTimeout(t);
+  }, [query]);
 
   const [products, setProducts] = useState<ProductCard[] | null>(null);
   const [error, setError] = useState('');
@@ -24,13 +32,13 @@ export default function Catalog() {
     let cancelled = false;
     setProducts(null);
     setError('');
-    fetchProducts(category, filter)
+    fetchProducts(category, filter, search)
       .then((list) => !cancelled && setProducts(list))
       .catch((e) => !cancelled && setError(e.message));
     return () => {
       cancelled = true;
     };
-  }, [category, filter]);
+  }, [category, filter, search]);
 
   const updateParams = (key: 'category' | 'filter', value: string) => {
     const next = new URLSearchParams(params);
@@ -59,7 +67,7 @@ export default function Catalog() {
 
   return (
     <div className="pb-24">
-      <Header title={content.catalog.title} />
+      <Header search={{ value: query, onChange: setQuery }} />
       <div className="sticky top-14 z-10 border-b border-line bg-page/95 backdrop-blur">
         <CategoryChips selected={category} onSelect={(c) => updateParams('category', c)} />
         <FilterPills selected={filter} onSelect={(f) => updateParams('filter', f)} />
@@ -90,12 +98,12 @@ export default function Catalog() {
 
       {products !== null && products.length === 0 && (
         <p className="px-10 py-16 text-center text-sm lowercase leading-relaxed text-muted">
-          {content.catalog.empty}
+          {search ? content.catalog.nothingFound : content.catalog.empty}
         </p>
       )}
 
       {products !== null && products.length > 0 && (
-        <div key={`${category}|${filter}`} className="grid grid-cols-2 gap-x-3 gap-y-6 p-4">
+        <div key={`${category}|${filter}|${search}`} className="grid grid-cols-2 gap-x-3 gap-y-6 p-4">
           {products.map((p, i) => (
             <ProductCardView key={p.id} product={p} index={i} onAdd={addCheapest} />
           ))}

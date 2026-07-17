@@ -102,3 +102,12 @@ export function IconUser({ size = 22 }: { size?: number }) {
     </svg>
   );
 }
+
+export function IconSearch({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...base}>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="M20 20l-3.5-3.5" />
+    </svg>
+  );
+}

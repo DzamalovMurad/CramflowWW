@@ -21,7 +21,9 @@ export const content = {
     addToCart: 'в корзину',
     deliveryToday: 'доставим сегодня',
     count: 'товаров',
+    searchPlaceholder: 'поиск букетов',
     empty: 'по этим условиям букетов не нашлось — попробуйте изменить фильтры',
+    nothingFound: 'по запросу ничего не найдено',
   },
 
   product: {

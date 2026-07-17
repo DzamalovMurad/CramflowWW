@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -26,13 +27,17 @@ const (
 	FilterBudget   = "budget"   // 💰 До 3000 ₽ — минимальный вариант не дороже 3000
 )
 
-func (r *Repository) ListProducts(category, filter string) ([]model.Product, error) {
+func (r *Repository) ListProducts(category, filter, search string) ([]model.Product, error) {
 	q := r.DB.Preload("Variants", func(db *gorm.DB) *gorm.DB {
 		return db.Order("price ASC")
 	}).Preload("Images").Where("is_hidden = ?", false)
 
 	if category != "" {
 		q = q.Where("category = ?", category)
+	}
+
+	if search = strings.TrimSpace(search); search != "" {
+		q = q.Where("name ILIKE ?", "%"+search+"%")
 	}
 
 	switch filter {

@@ -61,8 +61,9 @@ type productCard struct {
 func (a *API) listProducts(w http.ResponseWriter, r *http.Request) {
 	category := r.URL.Query().Get("category")
 	filter := r.URL.Query().Get("filter")
+	search := r.URL.Query().Get("q")
 
-	products, err := a.Repo.ListProducts(category, filter)
+	products, err := a.Repo.ListProducts(category, filter, search)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "не удалось загрузить каталог")
 		return
