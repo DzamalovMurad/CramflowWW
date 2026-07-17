@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Header from '../components/Header';
 import { content, categoryLabels } from '../content';
@@ -7,28 +7,20 @@ import { fetchFreshToday } from '../api';
 
 const c = content.home;
 
-/** Главная: иммерсивный герой с фрост-стеклом, блок «сегодня на базе», плитки категорий. */
-export default function Home() {
-  const imgRef = useRef<HTMLImageElement>(null);
-  const [freshToday, setFreshToday] = useState<string | null>(null);
+// Лепестки: позиция по горизонтали, длительность, задержка — заданы статично.
+const PETALS = [
+  { left: '8%', dur: 15, delay: 0, size: 14 },
+  { left: '22%', dur: 19, delay: 4, size: 10 },
+  { left: '38%', dur: 13, delay: 8, size: 18 },
+  { left: '54%', dur: 21, delay: 2, size: 12 },
+  { left: '70%', dur: 16, delay: 6, size: 16 },
+  { left: '86%', dur: 18, delay: 10, size: 11 },
+  { left: '95%', dur: 14, delay: 12, size: 14 },
+];
 
-  // Лёгкий parallax героя — только transform, 60fps.
-  useEffect(() => {
-    let raf = 0;
-    const onScroll = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        if (imgRef.current) {
-          imgRef.current.style.transform = `translateY(${Math.min(window.scrollY, 400) * 0.3}px)`;
-        }
-      });
-    };
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => {
-      window.removeEventListener('scroll', onScroll);
-      cancelAnimationFrame(raf);
-    };
-  }, []);
+/** Главная: живой неоновый герой (аврора + лепестки), «сегодня на базе», плитки категорий. */
+export default function Home() {
+  const [freshToday, setFreshToday] = useState<string | null>(null);
 
   useEffect(() => {
     fetchFreshToday()
@@ -40,15 +32,28 @@ export default function Home() {
     <div className="pb-24">
       <Header />
 
-      {/* ГЕРОЙ */}
+      {/* ГЕРОЙ — живая неоновая аврора вместо фото */}
       <section className="relative h-[80vh] min-h-[500px] overflow-hidden">
-        <img
-          ref={imgRef}
-          src="/seed/hero.webp"
-          alt=""
-          className="absolute inset-0 h-[120%] w-full object-cover will-change-transform"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-black/15" />
+        <div className="hero-aurora" aria-hidden>
+          <div className="blob blob-1" />
+          <div className="blob blob-2" />
+          <div className="blob blob-3" />
+          <div className="blob blob-4" />
+          {PETALS.map((p, i) => (
+            <span
+              key={i}
+              className="petal"
+              style={{
+                left: p.left,
+                width: p.size,
+                height: p.size,
+                animationDuration: `${p.dur}s`,
+                animationDelay: `${p.delay}s`,
+              }}
+            />
+          ))}
+        </div>
+        <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-black/20" />
 
         {/* Плашка-чип сверху */}
         <div className="absolute inset-x-0 top-0 flex justify-center pt-4">

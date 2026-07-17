@@ -275,6 +275,99 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* ============================================================
+   ГЕРОЙ ГЛАВНОЙ: неоновая аврора + парящие лепестки (без фото)
+   Всё на transform/opacity — дёшево для GPU, без blur-фильтров.
+   Единый «ночной сад» в обеих темах: белый текст читается всегда.
+   ============================================================ */
+.hero-aurora {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(90% 60% at 50% 42%, rgba(131, 247, 14, 0.1), transparent 70%),
+    radial-gradient(120% 80% at 50% 120%, #1c1030 0%, #0c0713 60%),
+    #0c0713;
+}
+.hero-aurora .blob {
+  position: absolute;
+  border-radius: 50%;
+  will-change: transform;
+  mix-blend-mode: screen;
+}
+.hero-aurora .blob-1 {
+  width: 70vmin;
+  height: 70vmin;
+  top: -18vmin;
+  left: -10vmin;
+  background: radial-gradient(closest-side, rgba(131, 247, 14, 0.55), transparent 70%);
+  animation: aurora-1 18s ease-in-out infinite alternate;
+}
+.hero-aurora .blob-2 {
+  width: 66vmin;
+  height: 66vmin;
+  top: 6vmin;
+  right: -18vmin;
+  background: radial-gradient(closest-side, rgba(255, 77, 157, 0.5), transparent 70%);
+  animation: aurora-2 22s ease-in-out infinite alternate;
+}
+.hero-aurora .blob-3 {
+  width: 60vmin;
+  height: 60vmin;
+  bottom: -6vmin;
+  left: 18vmin;
+  background: radial-gradient(closest-side, rgba(124, 77, 255, 0.5), transparent 70%);
+  animation: aurora-3 26s ease-in-out infinite alternate;
+}
+.hero-aurora .blob-4 {
+  width: 48vmin;
+  height: 48vmin;
+  top: 30vmin;
+  left: 30vmin;
+  background: radial-gradient(closest-side, rgba(255, 176, 32, 0.4), transparent 70%);
+  animation: aurora-1 30s ease-in-out infinite alternate-reverse;
+}
+@keyframes aurora-1 {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(10vmin, 8vmin) scale(1.18); }
+}
+@keyframes aurora-2 {
+  from { transform: translate(0, 0) scale(1.1); }
+  to { transform: translate(-12vmin, 6vmin) scale(1); }
+}
+@keyframes aurora-3 {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(8vmin, -10vmin) scale(1.15); }
+}
+
+/* Парящие лепестки: несколько лёгких элементов поднимаются со сдвигом */
+.petal {
+  position: absolute;
+  bottom: -8%;
+  width: 16px;
+  height: 16px;
+  border-radius: 60% 0 60% 0;
+  background: linear-gradient(140deg, #ffffff, rgba(255, 182, 213, 0.85));
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.45);
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: petal-rise linear infinite;
+}
+@keyframes petal-rise {
+  0% { transform: translateY(0) translateX(0) rotate(0deg); opacity: 0; }
+  15% { opacity: 0.95; }
+  85% { opacity: 0.8; }
+  100% { transform: translateY(-88vh) translateX(6vw) rotate(220deg); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-aurora .blob,
+  .petal {
+    animation: none;
+  }
+  .petal { opacity: 0.5; }
+}
+
 /* Переключатель темы: солнце ⇄ луна с поворотом */
 .theme-toggle {
   position: relative;
