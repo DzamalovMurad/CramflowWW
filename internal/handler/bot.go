@@ -171,7 +171,7 @@ func (b *Bot) handleCustomer(msg *tgbotapi.Message) {
 			return
 		}
 	}
-	b.sendShopButton(msg.Chat.ID, "🌸 Добро пожаловать в CramFlow!\nВыбирайте букеты в нашем магазине:")
+	b.sendShopButton(msg.Chat.ID, "🌸 Добро пожаловать в Flowix!\nВыбирайте букеты в нашем магазине:")
 }
 
 // webAppKeyboard — inline-кнопка с web_app (запуск Mini App). В tgbotapi v5.5.1

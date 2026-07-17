@@ -72,10 +72,10 @@ export interface CartItem {
 }
 
 export const CATEGORIES = [
-  { emoji: '💚', name: 'Стандарт' },
-  { emoji: '💎', name: 'Премиум' },
-  { emoji: '✨', name: 'Люкс' },
-  { emoji: '⚡', name: 'WOW' },
+  { emoji: '💚', name: 'Стандарт', image: '/seed/sunny-1.webp' },
+  { emoji: '💎', name: 'Премиум', image: '/seed/roses-red-1.webp' },
+  { emoji: '✨', name: 'Люкс', image: '/seed/peony-pastel-1.webp' },
+  { emoji: '⚡', name: 'WOW', image: '/seed/heart-1.webp' },
 ] as const;
 
 export const FILTERS = [
