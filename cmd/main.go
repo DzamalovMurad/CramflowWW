@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -39,7 +40,7 @@ func main() {
 	if err := db.AutoMigrate(
 		&model.Product{}, &model.ProductVariant{}, &model.ProductImage{},
 		&model.PromoCode{}, &model.User{}, &model.Order{}, &model.OrderItem{},
-		&model.FreshToday{},
+		&model.FreshToday{}, &model.OrderStatusLog{},
 	); err != nil {
 		log.Fatalf("миграции: %v", err)
 	}
@@ -64,11 +65,11 @@ func main() {
 	// Бот опционален: без BOT_TOKEN сервис работает как чистый API (удобно для разработки).
 	botToken := os.Getenv("BOT_TOKEN")
 	if botToken != "" {
-		adminChatID, _ := strconv.ParseInt(os.Getenv("ADMIN_CHAT_ID"), 10, 64)
-		if adminChatID == 0 {
-			log.Println("внимание: ADMIN_CHAT_ID не задан — админ-команды будут недоступны")
+		adminIDs := parseAdminIDs()
+		if len(adminIDs) == 0 {
+			log.Println("внимание: ADMIN_IDS/ADMIN_CHAT_ID не заданы — админ-команды будут недоступны")
 		}
-		bot, err := handler.NewBot(botToken, adminChatID, os.Getenv("TELEGRAM_APP_URL"), repo, svc, store)
+		bot, err := handler.NewBot(botToken, adminIDs, os.Getenv("TELEGRAM_APP_URL"), repo, svc, store)
 		if err != nil {
 			log.Fatalf("бот: %v", err)
 		}
@@ -97,6 +98,23 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// parseAdminIDs — whitelist админов: ADMIN_IDS="123,456" (приоритет)
+// или одиночный ADMIN_CHAT_ID (обратная совместимость).
+func parseAdminIDs() []int64 {
+	var ids []int64
+	for _, part := range strings.Split(os.Getenv("ADMIN_IDS"), ",") {
+		if id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64); err == nil && id != 0 {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		if id, _ := strconv.ParseInt(os.Getenv("ADMIN_CHAT_ID"), 10, 64); id != 0 {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // --- Сидинг тестовых данных ---

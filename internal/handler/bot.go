@@ -18,23 +18,33 @@ import (
 )
 
 type Bot struct {
-	api         *tgbotapi.BotAPI
-	repo        *repository.Repository
-	svc         *service.Service
-	store       storage.Storage
-	adminChatID int64
-	appURL      string
+	api      *tgbotapi.BotAPI
+	repo     *repository.Repository
+	svc      *service.Service
+	store    storage.Storage
+	adminIDs []int64 // whitelist: команды и callback-кнопки проверяются по нему
+	appURL   string
 
-	// Состояние визардов /add и /edit. Админ один, поэтому простая map без мьютекса:
-	// все апдейты обрабатываются последовательно в Run().
+	// Состояние визардов /add и /edit — по chat_id, апдейты обрабатываются
+	// последовательно в Run(), поэтому map без мьютекса.
 	wizards map[int64]*wizard
 }
 
+func (b *Bot) isAdmin(id int64) bool {
+	for _, a := range b.adminIDs {
+		if a == id {
+			return true
+		}
+	}
+	return false
+}
+
 type wizard struct {
-	mode      string // add | edit_text | edit_variants | edit_photos | edit_discount | edit_stock | fresh | order_photo
+	mode      string // add | edit_text | edit_variants | edit_photos | edit_discount | edit_stock | fresh | order_photo | cancel_reason
 	step      string // для add: name → photos → desc → variants → category → confirm
 	productID uint   // для edit
-	orderID   uint   // для order_photo
+	orderID   uint   // для order_photo / cancel_reason
+	msgID     int    // сообщение-карточка, которое редактируем после действия
 	field     string // name | description
 	draft     draft
 }
@@ -47,19 +57,19 @@ type draft struct {
 	imageURLs   []string
 }
 
-func NewBot(token string, adminChatID int64, appURL string, repo *repository.Repository, svc *service.Service, store storage.Storage) (*Bot, error) {
+func NewBot(token string, adminIDs []int64, appURL string, repo *repository.Repository, svc *service.Service, store storage.Storage) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
 	}
 	b := &Bot{
-		api:         api,
-		repo:        repo,
-		svc:         svc,
-		store:       store,
-		adminChatID: adminChatID,
-		appURL:      appURL,
-		wizards:     map[int64]*wizard{},
+		api:      api,
+		repo:     repo,
+		svc:      svc,
+		store:    store,
+		adminIDs: adminIDs,
+		appURL:   appURL,
+		wizards:  map[int64]*wizard{},
 	}
 	svc.NotifyNewOrder = b.NotifyNewOrder
 	return b, nil
@@ -101,10 +111,19 @@ func (b *Bot) sendKb(chatID int64, text string, kb tgbotapi.InlineKeyboardMarkup
 	}
 }
 
+// editKb — правит текст и клавиатуру существующего сообщения (чистый чат вместо спама).
+func (b *Bot) editKb(chatID int64, msgID int, text string, kb tgbotapi.InlineKeyboardMarkup) {
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, kb)
+	if _, err := b.api.Send(edit); err != nil {
+		log.Printf("bot edit: %v", err)
+	}
+}
+
 // --- Входящие сообщения ---
 
 func (b *Bot) handleMessage(msg *tgbotapi.Message) {
-	if msg.Chat.ID != b.adminChatID {
+	// Не-админы видят обычный магазин: никаких намёков на админ-команды.
+	if !b.isAdmin(msg.Chat.ID) {
 		b.handleCustomer(msg)
 		return
 	}
@@ -113,11 +132,13 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		switch msg.Command() {
 		case "start", "help":
 			b.send(msg.Chat.ID, "Команды администратора:\n"+
+				"/orders — заказы по статусам\n"+
+				"/preorders — 📅 предзаказы (доставка позже сегодня)\n"+
+				"/clients <имя или телефон> — база клиентов\n"+
 				"/add — добавить товар\n"+
 				"/edit — изменить товар\n"+
 				"/hide — скрыть/показать товар\n"+
 				"/delete — удалить товар\n"+
-				"/orders — последние заказы\n"+
 				"/fresh — что сегодня свежее на базе\n"+
 				"/cancel — прервать текущее действие")
 		case "fresh":
@@ -137,7 +158,11 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		case "delete":
 			b.sendProductList(msg.Chat.ID, "Какой товар удалить?", "del")
 		case "orders":
-			b.sendOrderList(msg.Chat.ID)
+			b.sendStatusFilter(msg.Chat.ID)
+		case "preorders":
+			b.sendPreorders(msg.Chat.ID)
+		case "clients":
+			b.sendClientSearch(msg.Chat.ID, msg.CommandArguments())
 		case "done":
 			b.wizardDone(msg.Chat.ID)
 		case "cancel":
@@ -261,6 +286,21 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 	case "fresh":
 		delete(b.wizards, chatID)
 		b.saveFresh(chatID, text)
+	case "cancel_reason":
+		delete(b.wizards, chatID)
+		updated, err := b.svc.TransitionOrder(w.orderID, model.StatusCancelled, msg.From.ID, text)
+		if err != nil {
+			b.send(chatID, "Не получилось отменить: "+err.Error())
+			return
+		}
+		// Обновляем исходную карточку на месте и подтверждаем.
+		if w.msgID != 0 {
+			b.editOrderCard(chatID, w.msgID, updated)
+		}
+		b.send(chatID, fmt.Sprintf("❌ Заказ #%d отменён: %s", updated.ID, text))
+		if tmpl, ok := model.ClientStatusMessages[model.StatusCancelled]; ok {
+			b.notifyCustomerStatus(updated.ID, model.StatusCancelled, tmpl)
+		}
 	case "order_photo":
 		b.send(chatID, "Жду фото букета. Или /cancel для отмены.")
 	case "edit_text":
@@ -425,7 +465,8 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	}()
 
 	chatID := cb.Message.Chat.ID
-	if chatID != b.adminChatID {
+	// Callback-кнопки тоже проверяем по whitelist: payload можно подделать.
+	if !b.isAdmin(chatID) || (cb.From != nil && !b.isAdmin(cb.From.ID)) {
 		return
 	}
 
@@ -608,27 +649,65 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		}
 		b.send(chatID, "🗑 Товар удалён.")
 
-	case "order":
-		b.sendOrderDetails(chatID, argAt(1))
-
-	case "ost": // order set status: ost:<id>:<status>
-		id := argAt(1)
+	case "pg": // pg:<status>:<page> — страница заказов, редактируем сообщение на месте
 		if len(parts) < 3 {
 			return
 		}
-		status := parts[2]
-		if _, ok := model.StatusLabels[status]; !ok {
+		status := parts[1]
+		page := int(argAt(2))
+		b.renderOrderPage(chatID, cb.Message.MessageID, status, page)
+
+	case "o": // o:<id> — карточка; o:<id>:next — следующий статус; o:<id>:cancel — отмена
+		id := argAt(1)
+		if len(parts) < 3 {
+			o, err := b.repo.GetOrder(id)
+			if err != nil {
+				b.send(chatID, "Заказ не найден.")
+				return
+			}
+			b.sendKb(chatID, formatOrder(o, false), adminOrderKeyboard(o))
 			return
 		}
-		if err := b.repo.UpdateOrderStatus(id, status); err != nil {
-			b.send(chatID, "Ошибка: "+err.Error())
-			return
+		switch parts[2] {
+		case "next":
+			o, err := b.repo.GetOrder(id)
+			if err != nil {
+				b.send(chatID, "Заказ не найден.")
+				return
+			}
+			next := model.NextStatus(o.Status)
+			if next == "" {
+				b.send(chatID, "Заказ уже в финальном статусе.")
+				return
+			}
+			updated, err := b.svc.TransitionOrder(id, next, cb.From.ID, "")
+			if err != nil {
+				b.send(chatID, "Ошибка: "+err.Error())
+				return
+			}
+			// Карточку редактируем на месте — чат остаётся чистым.
+			b.editOrderCard(chatID, cb.Message.MessageID, updated)
+			if msg, ok := model.ClientStatusMessages[next]; ok && msg != "" {
+				b.notifyCustomerStatus(id, next, msg)
+			}
+		case "cancel":
+			b.wizards[chatID] = &wizard{mode: "cancel_reason", orderID: id, msgID: cb.Message.MessageID}
+			reply := tgbotapi.NewMessage(chatID, fmt.Sprintf("Причина отмены заказа #%d (коротко):", id))
+			reply.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, InputFieldPlaceholder: "например: клиент передумал"}
+			if _, err := b.api.Send(reply); err != nil {
+				log.Printf("bot send: %v", err)
+			}
 		}
-		b.send(chatID, fmt.Sprintf("Заказ #%d → %s", id, model.StatusLabels[status]))
-		// Уведомляем клиента о смене статуса.
-		if msg, ok := model.ClientStatusMessages[status]; ok && msg != "" {
-			b.notifyCustomerStatus(id, status, msg)
-		}
+
+	case "cl": // cl:<userID> — карточка клиента со статистикой
+		b.sendClientDetails(chatID, argAt(1))
+
+	case "flt": // назад к фильтрам — правим то же сообщение
+		text, kb := b.buildStatusFilter()
+		b.editKb(chatID, cb.Message.MessageID, text, kb)
+
+	case "flt2": // фильтры новым сообщением (из финальной карточки)
+		b.sendStatusFilter(chatID)
 
 	case "ophoto": // фото готового букета → клиенту
 		id := argAt(1)
@@ -643,15 +722,6 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		}
 		b.wizards[chatID] = &wizard{mode: "order_photo", orderID: id}
 		b.send(chatID, fmt.Sprintf("📷 Пришлите фото букета для заказа #%d — я отправлю его клиенту. /cancel — отмена.", id))
-
-	case "ostmenu": // выбор статуса
-		id := argAt(1)
-		var rows [][]tgbotapi.InlineKeyboardButton
-		for _, st := range model.StatusOrder {
-			rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(model.StatusLabels[st], fmt.Sprintf("ost:%d:%s", id, st))))
-		}
-		b.sendKb(chatID, fmt.Sprintf("Новый статус заказа #%d:", id), tgbotapi.NewInlineKeyboardMarkup(rows...))
 
 	case "noop":
 		// отмена подтверждения — ничего не делаем
@@ -702,63 +772,248 @@ func (b *Bot) sendProductList(chatID int64, title, action string) {
 	b.sendKb(chatID, title, tgbotapi.NewInlineKeyboardMarkup(rows...))
 }
 
-func (b *Bot) sendOrderList(chatID int64) {
-	orders, err := b.repo.ListRecentOrders(10)
-	if err != nil || len(orders) == 0 {
-		b.send(chatID, "Заказов пока нет.")
-		return
+// --- Админ-CRM: заказы по статусам с пагинацией ---
+
+const ordersPerPage = 5
+
+// sendStatusFilter — /orders: фильтр статусов с бейджами-счётчиками.
+func (b *Bot) sendStatusFilter(chatID int64) {
+	text, kb := b.buildStatusFilter()
+	b.sendKb(chatID, text, kb)
+}
+
+func (b *Bot) buildStatusFilter() (string, tgbotapi.InlineKeyboardMarkup) {
+	counts, err := b.repo.CountOrdersByStatus()
+	if err != nil {
+		counts = map[string]int64{}
 	}
 	var rows [][]tgbotapi.InlineKeyboardButton
-	for _, o := range orders {
-		label := fmt.Sprintf("#%d · %d₽ · %s", o.ID, o.TotalPrice, model.StatusLabels[o.Status])
-		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("order:%d", o.ID))))
+	var row []tgbotapi.InlineKeyboardButton
+	for _, st := range model.StatusOrder {
+		label := fmt.Sprintf("%s (%d)", model.StatusLabels[st], counts[st])
+		row = append(row, tgbotapi.NewInlineKeyboardButtonData(label, fmt.Sprintf("pg:%s:1", st)))
+		if len(row) == 2 {
+			rows = append(rows, row)
+			row = nil
+		}
 	}
-	b.sendKb(chatID, "Последние заказы:", tgbotapi.NewInlineKeyboardMarkup(rows...))
+	if len(row) > 0 {
+		rows = append(rows, row)
+	}
+	return "Заказы по статусам:", tgbotapi.NewInlineKeyboardMarkup(rows...)
 }
 
-// orderKeyboard — общая клавиатура карточки заказа (детали и уведомление о новом).
-func orderKeyboard(o *model.Order) tgbotapi.InlineKeyboardMarkup {
-	return tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("✅ Подтвердить", fmt.Sprintf("ost:%d:%s", o.ID, model.StatusConfirmed)),
-			tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", fmt.Sprintf("ost:%d:%s", o.ID, model.StatusCancelled)),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("📷 Фото букета", fmt.Sprintf("ophoto:%d", o.ID)),
-			tgbotapi.NewInlineKeyboardButtonData("🔄 Статус", fmt.Sprintf("ostmenu:%d", o.ID)),
-		),
-	)
-}
-
-func (b *Bot) sendOrderDetails(chatID int64, id uint) {
-	o, err := b.repo.GetOrder(id)
+// renderOrderPage — редактирует сообщение со списком заказов статуса (5 на страницу).
+func (b *Bot) renderOrderPage(chatID int64, msgID int, status string, page int) {
+	if page < 1 {
+		page = 1
+	}
+	counts, _ := b.repo.CountOrdersByStatus()
+	total := int(counts[status])
+	pages := (total + ordersPerPage - 1) / ordersPerPage
+	orders, err := b.repo.ListOrdersByStatusPage(status, page, ordersPerPage)
 	if err != nil {
-		b.send(chatID, "Заказ не найден.")
+		b.send(chatID, "Ошибка: "+err.Error())
 		return
 	}
-	b.sendKb(chatID, formatOrder(o, false), orderKeyboard(o))
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%s — %d шт", model.StatusLabels[status], total)
+	if pages > 1 {
+		fmt.Fprintf(&sb, " · стр. %d/%d", page, pages)
+	}
+	sb.WriteString("\n\n")
+	var rows [][]tgbotapi.InlineKeyboardButton
+	if len(orders) == 0 {
+		sb.WriteString("Пусто.")
+	}
+	var btnRow []tgbotapi.InlineKeyboardButton
+	for _, o := range orders {
+		pre := ""
+		if isPreorder(&o) {
+			pre = "📅 "
+		}
+		fmt.Fprintf(&sb, "%s#%d · %s, %s · %s · %d₽\n",
+			pre, o.ID, o.DeliveryDate, o.DeliveryTime, orDash(o.User.Name), o.TotalPrice)
+		btnRow = append(btnRow, tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("#%d", o.ID), fmt.Sprintf("o:%d", o.ID)))
+		if len(btnRow) == 3 {
+			rows = append(rows, btnRow)
+			btnRow = nil
+		}
+	}
+	if len(btnRow) > 0 {
+		rows = append(rows, btnRow)
+	}
+
+	var nav []tgbotapi.InlineKeyboardButton
+	if page > 1 {
+		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData("← Назад", fmt.Sprintf("pg:%s:%d", status, page-1)))
+	}
+	nav = append(nav, tgbotapi.NewInlineKeyboardButtonData("Фильтры", "flt"))
+	if page < pages {
+		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData("Вперёд →", fmt.Sprintf("pg:%s:%d", status, page+1)))
+	}
+	rows = append(rows, nav)
+
+	b.editKb(chatID, msgID, sb.String(), tgbotapi.NewInlineKeyboardMarkup(rows...))
 }
 
-// NotifyNewOrder шлёт админу уведомление о новом заказе.
-func (b *Bot) NotifyNewOrder(o *model.Order) {
-	if b.adminChatID == 0 {
+// sendPreorders — /preorders: активные заказы на будущие даты.
+func (b *Bot) sendPreorders(chatID int64) {
+	today := time.Now().Format("2006-01-02")
+	orders, err := b.repo.ListPreorders(today, 20)
+	if err != nil {
+		b.send(chatID, "Ошибка: "+err.Error())
 		return
 	}
-	b.sendKb(b.adminChatID, formatOrder(o, true), orderKeyboard(o))
+	if len(orders) == 0 {
+		b.send(chatID, "📅 Предзаказов нет — все заказы на сегодня.")
+		return
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "📅 Предзаказы (%d):\n\n", len(orders))
+	var rows [][]tgbotapi.InlineKeyboardButton
+	var btnRow []tgbotapi.InlineKeyboardButton
+	for _, o := range orders {
+		fmt.Fprintf(&sb, "#%d · %s, %s · %s · %d₽ · %s\n",
+			o.ID, o.DeliveryDate, o.DeliveryTime, orDash(o.User.Name), o.TotalPrice, model.StatusLabels[o.Status])
+		btnRow = append(btnRow, tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("#%d", o.ID), fmt.Sprintf("o:%d", o.ID)))
+		if len(btnRow) == 3 {
+			rows = append(rows, btnRow)
+			btnRow = nil
+		}
+	}
+	if len(btnRow) > 0 {
+		rows = append(rows, btnRow)
+	}
+	b.sendKb(chatID, sb.String(), tgbotapi.NewInlineKeyboardMarkup(rows...))
+}
+
+// adminOrderKeyboard — кнопки карточки: следующий шаг конвейера, фото, отмена.
+func adminOrderKeyboard(o *model.Order) tgbotapi.InlineKeyboardMarkup {
+	var rows [][]tgbotapi.InlineKeyboardButton
+	if next := model.NextStatus(o.Status); next != "" {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("➡️ "+model.StatusLabels[next], fmt.Sprintf("o:%d:next", o.ID))))
+	}
+	if o.Status != model.StatusCancelled && o.Status != model.StatusDelivered {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📷 Фото букета", fmt.Sprintf("ophoto:%d", o.ID)),
+			tgbotapi.NewInlineKeyboardButtonData("❌ Отменить", fmt.Sprintf("o:%d:cancel", o.ID)),
+		))
+	}
+	if len(rows) == 0 {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("К фильтрам", "flt2")))
+	}
+	return tgbotapi.NewInlineKeyboardMarkup(rows...)
+}
+
+// editOrderCard — обновляет карточку заказа на месте (editMessageText).
+func (b *Bot) editOrderCard(chatID int64, msgID int, o *model.Order) {
+	b.editKb(chatID, msgID, formatOrder(o, false), adminOrderKeyboard(o))
+}
+
+// NotifyNewOrder шлёт карточку нового заказа всем админам — основной рабочий поток.
+func (b *Bot) NotifyNewOrder(o *model.Order) {
+	for _, adminID := range b.adminIDs {
+		b.sendKb(adminID, formatOrder(o, true), adminOrderKeyboard(o))
+	}
+}
+
+// --- Админ-CRM: клиенты ---
+
+// sendClientSearch — /clients <запрос>: до 5 совпадений по имени/телефону.
+func (b *Bot) sendClientSearch(chatID int64, query string) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		b.send(chatID, "Использование: /clients <имя или телефон>\nНапример: /clients мурад или /clients 8999")
+		return
+	}
+	users, err := b.repo.SearchClients(query, 5)
+	if err != nil {
+		b.send(chatID, "Ошибка: "+err.Error())
+		return
+	}
+	if len(users) == 0 {
+		b.send(chatID, "Никого не нашлось по запросу «"+query+"».")
+		return
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Найдено %d:\n\n", len(users))
+	var rows [][]tgbotapi.InlineKeyboardButton
+	for _, u := range users {
+		fmt.Fprintf(&sb, "• %s · %s\n", orDash(u.Name), orDash(u.Phone))
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(
+				fmt.Sprintf("Подробнее: %s", orDash(u.Name)), fmt.Sprintf("cl:%d", u.ID))))
+	}
+	b.sendKb(chatID, sb.String(), tgbotapi.NewInlineKeyboardMarkup(rows...))
+}
+
+// sendClientDetails — карточка клиента: LTV, средний чек, последние заказы.
+func (b *Bot) sendClientDetails(chatID int64, userID uint) {
+	u, err := b.repo.GetUserByID(userID)
+	if err != nil {
+		b.send(chatID, "Клиент не найден.")
+		return
+	}
+	stats, err := b.repo.GetClientStats(userID)
+	if err != nil {
+		b.send(chatID, "Ошибка: "+err.Error())
+		return
+	}
+	last, _ := b.repo.LastClientOrders(userID, 5)
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "👤 %s\nТелефон: %s\n\n", orDash(u.Name), orDash(u.Phone))
+	fmt.Fprintf(&sb, "Заказов: %d (доставлено %d, отменено %d)\n", stats.Orders, stats.Delivered, stats.Cancelled)
+	fmt.Fprintf(&sb, "LTV: %d₽\n", stats.LTV)
+	fmt.Fprintf(&sb, "Средний чек: %.0f₽\n", stats.AvgCheck)
+	if len(last) > 0 {
+		sb.WriteString("\nПоследние заказы:\n")
+		var rows [][]tgbotapi.InlineKeyboardButton
+		var btnRow []tgbotapi.InlineKeyboardButton
+		for _, o := range last {
+			fmt.Fprintf(&sb, "#%d · %s · %d₽ · %s\n", o.ID, o.DeliveryDate, o.TotalPrice, model.StatusLabels[o.Status])
+			btnRow = append(btnRow, tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("#%d", o.ID), fmt.Sprintf("o:%d", o.ID)))
+			if len(btnRow) == 3 {
+				rows = append(rows, btnRow)
+				btnRow = nil
+			}
+		}
+		if len(btnRow) > 0 {
+			rows = append(rows, btnRow)
+		}
+		b.sendKb(chatID, sb.String(), tgbotapi.NewInlineKeyboardMarkup(rows...))
+		return
+	}
+	b.send(chatID, sb.String())
+}
+
+func isPreorder(o *model.Order) bool {
+	return o.DeliveryDate > time.Now().Format("2006-01-02")
 }
 
 func formatOrder(o *model.Order, isNew bool) string {
 	var sb strings.Builder
+	pre := ""
+	if isPreorder(o) {
+		pre = "📅 "
+	}
 	if isNew {
-		fmt.Fprintf(&sb, "🌸 Новый заказ #%d\n", o.ID)
+		fmt.Fprintf(&sb, "🌸 %sНовый заказ #%d\n", pre, o.ID)
 	} else {
-		fmt.Fprintf(&sb, "🌸 Заказ #%d · %s\n", o.ID, model.StatusLabels[o.Status])
+		fmt.Fprintf(&sb, "🌸 %sЗаказ #%d · %s\n", pre, o.ID, model.StatusLabels[o.Status])
 	}
 	fmt.Fprintf(&sb, "Клиент: %s\n", o.User.Name)
 	fmt.Fprintf(&sb, "Телефон: %s\n", o.User.Phone)
 	sb.WriteString("Букеты: ")
 	for i, it := range o.Items {
+		if i == 4 { // не раздуваем карточку: максимум 4 позиции
+			fmt.Fprintf(&sb, "; … ещё %d", len(o.Items)-4)
+			break
+		}
 		if i > 0 {
 			sb.WriteString("; ")
 		}
@@ -774,8 +1029,17 @@ func formatOrder(o *model.Order, isNew bool) string {
 		fmt.Fprintf(&sb, "Промокод: %s (−%d%%)\n", o.PromoCode.Code, o.PromoCode.DiscountPercent)
 	}
 	fmt.Fprintf(&sb, "Итого: %d₽\n", o.TotalPrice)
+	if o.CardText != "" {
+		fmt.Fprintf(&sb, "Открытка: %s\n", o.CardText)
+	}
+	if o.IsAnonymous {
+		sb.WriteString("🤫 Анонимная доставка\n")
+	}
 	if o.Comment != "" {
-		fmt.Fprintf(&sb, "Комментарий: %s", o.Comment)
+		fmt.Fprintf(&sb, "Комментарий: %s\n", o.Comment)
+	}
+	if o.Status == model.StatusCancelled && o.CancelReason != "" {
+		fmt.Fprintf(&sb, "Причина отмены: %s\n", o.CancelReason)
 	}
 	return strings.TrimSpace(sb.String())
 }
@@ -833,10 +1097,16 @@ func (b *Bot) sendBouquetPhoto(chatID int64, orderID uint, fileID string) {
 		return
 	}
 
-	if err := b.repo.UpdateOrderStatus(o.ID, model.StatusPhotoSent); err != nil {
-		log.Printf("update status after photo: %v", err)
+	// Статус двигаем только если фото — следующий шаг конвейера (из «Собираем»);
+	// иначе статус не трогаем, фото просто ушло клиенту.
+	if model.AllowedTransition(o.Status, model.StatusPhotoSent) {
+		if _, err := b.svc.TransitionOrder(o.ID, model.StatusPhotoSent, chatID, ""); err != nil {
+			log.Printf("update status after photo: %v", err)
+		}
+		b.send(chatID, fmt.Sprintf("✅ Фото отправлено клиенту, заказ #%d → %s.", o.ID, model.StatusLabels[model.StatusPhotoSent]))
+		return
 	}
-	b.send(chatID, fmt.Sprintf("✅ Фото отправлено клиенту, заказ #%d → %s.", o.ID, model.StatusLabels[model.StatusPhotoSent]))
+	b.send(chatID, fmt.Sprintf("✅ Фото отправлено клиенту заказа #%d.", o.ID))
 }
 
 // notifyCustomerStatus — отправляет клиенту уведомление о смене статуса заказа.

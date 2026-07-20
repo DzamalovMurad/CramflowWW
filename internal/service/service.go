@@ -188,6 +188,29 @@ func (s *Service) CreateOrder(in OrderInput) (*model.Order, error) {
 	return full, nil
 }
 
+// TransitionOrder — смена статуса через конечный автомат: только следующий шаг
+// либо отмена (с обязательной причиной) из нетерминального статуса.
+// Возвращает обновлённый заказ.
+func (s *Service) TransitionOrder(orderID uint, to string, adminID int64, cancelReason string) (*model.Order, error) {
+	order, err := s.Repo.GetOrder(orderID)
+	if err != nil {
+		return nil, err
+	}
+	if !model.AllowedTransition(order.Status, to) {
+		return nil, invalid("переход %s → %s недопустим", model.StatusLabels[order.Status], model.StatusLabels[to])
+	}
+	if to == model.StatusCancelled && strings.TrimSpace(cancelReason) == "" {
+		return nil, invalid("укажите причину отмены")
+	}
+	if err := s.Repo.ChangeOrderStatus(orderID, order.Status, to, adminID, strings.TrimSpace(cancelReason)); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, invalid("статус заказа уже изменился — обновите карточку")
+		}
+		return nil, err
+	}
+	return s.Repo.GetOrder(orderID)
+}
+
 // ApplyDeepLinkPromo сохраняет промокод у пользователя (deep-link t.me/bot?start=CODE).
 func (s *Service) ApplyDeepLinkPromo(telegramID int64, code string) (*model.PromoCode, error) {
 	promo, err := s.Repo.GetPromoByCode(code)
