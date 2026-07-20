@@ -2,6 +2,7 @@ package repository
 
 import (
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -11,10 +12,53 @@ import (
 
 type Repository struct {
 	DB *gorm.DB
+
+	// In-memory кэш витрины: полный список видимых товаров.
+	// TTL + инвалидация при любом изменении ассортимента ботом.
+	catMu    sync.RWMutex
+	catItems []model.Product
+	catAt    time.Time
 }
+
+const catalogTTL = 5 * time.Minute
 
 func New(db *gorm.DB) *Repository {
 	return &Repository{DB: db}
+}
+
+// InvalidateCatalog сбрасывает кэш витрины (вызывается после правок товаров).
+func (r *Repository) InvalidateCatalog() {
+	r.catMu.Lock()
+	r.catItems = nil
+	r.catMu.Unlock()
+}
+
+// visibleProducts возвращает все видимые товары из кэша (или из БД с прогревом).
+func (r *Repository) visibleProducts() ([]model.Product, error) {
+	r.catMu.RLock()
+	if r.catItems != nil && time.Since(r.catAt) < catalogTTL {
+		items := r.catItems
+		r.catMu.RUnlock()
+		return items, nil
+	}
+	r.catMu.RUnlock()
+
+	var products []model.Product
+	err := r.DB.Preload("Variants", func(db *gorm.DB) *gorm.DB {
+		return db.Order("price ASC")
+	}).Preload("Images").
+		Where("is_hidden = ?", false).
+		Order("created_at DESC").
+		Find(&products).Error
+	if err != nil {
+		return nil, err
+	}
+
+	r.catMu.Lock()
+	r.catItems = products
+	r.catAt = time.Now()
+	r.catMu.Unlock()
+	return products, nil
 }
 
 // --- Products ---
@@ -27,38 +71,74 @@ const (
 	FilterBudget   = "budget"   // 💰 До 3000 ₽ — минимальный вариант не дороже 3000
 )
 
+// ListProducts отдаёт витрину из in-memory кэша: категория, быстрые фильтры
+// и нечёткий поиск применяются в памяти. Исключение — «популярное»:
+// сортировка по продажам требует SQL-агрегации и идёт мимо кэша.
 func (r *Repository) ListProducts(category, filter, search string) ([]model.Product, error) {
+	search = strings.TrimSpace(search)
+
+	if filter == FilterPopular {
+		return r.listPopular(category, search)
+	}
+
+	all, err := r.visibleProducts()
+	if err != nil {
+		return nil, err
+	}
+
+	cutoff := time.Now().AddDate(0, 0, -14)
+	out := make([]model.Product, 0, len(all))
+	for _, p := range all {
+		if category != "" && p.Category != category {
+			continue
+		}
+		switch filter {
+		case FilterNew:
+			if !p.CreatedAt.After(cutoff) {
+				continue
+			}
+		case FilterBudget:
+			if len(p.Variants) == 0 || p.Variants[0].Price > 3000 {
+				continue
+			}
+		case FilterPreorder:
+			// Предзаказ доступен для всего каталога: дату и время клиент выбирает в checkout.
+		}
+		if !MatchesSearch(p.Name, search) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+func (r *Repository) listPopular(category, search string) ([]model.Product, error) {
 	q := r.DB.Preload("Variants", func(db *gorm.DB) *gorm.DB {
 		return db.Order("price ASC")
 	}).Preload("Images").Where("is_hidden = ?", false)
-
 	if category != "" {
 		q = q.Where("category = ?", category)
 	}
-
-	if search = strings.TrimSpace(search); search != "" {
-		q = q.Where("name ILIKE ?", "%"+search+"%")
-	}
-
-	switch filter {
-	case FilterNew:
-		q = q.Where("products.created_at > ?", time.Now().AddDate(0, 0, -14))
-	case FilterBudget:
-		q = q.Where("(SELECT MIN(price) FROM product_variants v WHERE v.product_id = products.id) <= ?", 3000)
-	case FilterPopular:
-		q = q.Order(`(SELECT COALESCE(SUM(oi.quantity), 0)
-			FROM order_items oi
-			JOIN product_variants v ON v.id = oi.variant_id
-			WHERE v.product_id = products.id) DESC`)
-	case FilterPreorder:
-		// Предзаказ доступен для всего каталога: дату и время клиент выбирает в checkout.
-	}
-
-	q = q.Order("products.created_at DESC")
+	q = q.Order(`(SELECT COALESCE(SUM(oi.quantity), 0)
+		FROM order_items oi
+		JOIN product_variants v ON v.id = oi.variant_id
+		WHERE v.product_id = products.id) DESC`).
+		Order("products.created_at DESC")
 
 	var products []model.Product
-	err := q.Find(&products).Error
-	return products, err
+	if err := q.Find(&products).Error; err != nil {
+		return nil, err
+	}
+	if search == "" {
+		return products, nil
+	}
+	out := make([]model.Product, 0, len(products))
+	for _, p := range products {
+		if MatchesSearch(p.Name, search) {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 // ListAllProducts — для админ-бота, включая скрытые.
@@ -80,15 +160,18 @@ func (r *Repository) GetProduct(id uint) (*model.Product, error) {
 }
 
 func (r *Repository) CreateProduct(p *model.Product) error {
+	defer r.InvalidateCatalog()
 	return r.DB.Create(p).Error
 }
 
 func (r *Repository) SaveProduct(p *model.Product) error {
+	defer r.InvalidateCatalog()
 	return r.DB.Save(p).Error
 }
 
 // ReplaceVariants заменяет все варианты товара.
 func (r *Repository) ReplaceVariants(productID uint, variants []model.ProductVariant) error {
+	defer r.InvalidateCatalog()
 	return r.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("product_id = ?", productID).Delete(&model.ProductVariant{}).Error; err != nil {
 			return err
@@ -102,6 +185,7 @@ func (r *Repository) ReplaceVariants(productID uint, variants []model.ProductVar
 
 // ReplaceImages заменяет все фото товара.
 func (r *Repository) ReplaceImages(productID uint, urls []string) error {
+	defer r.InvalidateCatalog()
 	return r.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("product_id = ?", productID).Delete(&model.ProductImage{}).Error; err != nil {
 			return err
@@ -118,20 +202,24 @@ func (r *Repository) ReplaceImages(productID uint, urls []string) error {
 }
 
 func (r *Repository) SetProductHidden(id uint, hidden bool) error {
+	defer r.InvalidateCatalog()
 	return r.DB.Model(&model.Product{}).Where("id = ?", id).Update("is_hidden", hidden).Error
 }
 
 func (r *Repository) SetProductHit(id uint, hit bool) error {
+	defer r.InvalidateCatalog()
 	return r.DB.Model(&model.Product{}).Where("id = ?", id).Update("is_hit", hit).Error
 }
 
 func (r *Repository) SetProductStock(id uint, stock int) error {
+	defer r.InvalidateCatalog()
 	return r.DB.Model(&model.Product{}).Where("id = ?", id).Update("stock", stock).Error
 }
 
 // SetProductDiscount проставляет старую цену вариантов из текущей и процента скидки
 // (percent 0 — убрать скидку). Бейдж −N% на витрине считается по old_price/price.
 func (r *Repository) SetProductDiscount(id uint, percent int) error {
+	defer r.InvalidateCatalog()
 	var variants []model.ProductVariant
 	if err := r.DB.Where("product_id = ?", id).Find(&variants).Error; err != nil {
 		return err
@@ -152,6 +240,7 @@ func (r *Repository) SetProductDiscount(id uint, percent int) error {
 }
 
 func (r *Repository) DeleteProduct(id uint) error {
+	defer r.InvalidateCatalog()
 	return r.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("product_id = ?", id).Delete(&model.ProductVariant{}).Error; err != nil {
 			return err

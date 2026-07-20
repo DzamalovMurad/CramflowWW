@@ -30,6 +30,7 @@ export default function TabBar() {
             >
               <span
                 className={`relative transition-colors ${active ? 'text-ink' : 'text-muted'}`}
+                {...(cart ? { 'data-cart-icon': true } : {})}
               >
                 <Icon size={23} />
                 {cart && count > 0 && (
