@@ -22,7 +22,7 @@ export default function CategoryChips({ selected, onSelect }: Props) {
               onSelect(name);
             }}
             className={`tab snap-start rounded-button px-4 py-2 text-[15px] lowercase ${
-              active ? 'bg-ink !text-page' : ''
+              active ? 'neon-glow bg-ink !text-page' : ''
             }`}
           >
             {label}

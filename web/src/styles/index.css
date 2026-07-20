@@ -216,13 +216,32 @@ body {
   background: var(--c-accent);
   color: var(--c-on-accent);
   box-shadow: 0 4px 14px -4px rgba(131, 247, 14, 0.6);
-  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
 }
 .fab-add:active {
   transform: scale(0.85);
 }
 
+/* Неоновое свечение активных элементов — только в тёмной теме */
+.neon-glow {
+  transition: box-shadow 0.3s ease;
+}
+:root[data-theme='dark'] .neon-glow {
+  box-shadow: 0 0 15px rgba(128, 255, 0, 0.3);
+}
+:root[data-theme='dark'] .neon-glow:active,
+:root[data-theme='dark'] .neon-glow:hover {
+  box-shadow: 0 0 24px rgba(128, 255, 0, 0.5);
+}
+:root[data-theme='dark'] .fab-add {
+  box-shadow: 0 0 15px rgba(128, 255, 0, 0.35);
+}
+:root[data-theme='dark'] .fab-add:active {
+  box-shadow: 0 0 24px rgba(128, 255, 0, 0.55);
+}
+
 /* Бейджи на фото товара */
+/* Бейджи на фото: тёмное полупрозрачное стекло с локальным блюром */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -235,18 +254,18 @@ body {
   letter-spacing: 0.02em;
   text-transform: uppercase;
   line-height: 1;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 .badge-hit {
-  background: var(--c-accent);
-  color: var(--c-on-accent);
+  color: #9dff33; /* неон читаем на тёмном стекле в обеих темах */
 }
 .badge-sale {
-  background: rgba(14, 15, 12, 0.9);
-  color: #fff;
+  color: #ffffff;
 }
 .badge-stock {
-  background: var(--c-accent);
-  color: var(--c-on-accent);
+  color: #9dff33;
 }
 
 /* Вкладки категорий: активная — «таблетка» с инверсией */
@@ -373,7 +392,7 @@ body {
   position: fixed;
   inset: 0;
   z-index: 45;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.6);
 }
 .sheet {
   position: fixed;
@@ -383,7 +402,7 @@ body {
   width: 100%;
   max-width: 28rem;
   z-index: 46;
-  border-radius: 24px 24px 0 0;
+  border-radius: 16px 16px 0 0;
   background: var(--c-surface);
   padding: 10px 20px calc(env(safe-area-inset-bottom) + 20px);
   animation: sheet-up 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -391,6 +410,15 @@ body {
 @keyframes sheet-up {
   from { transform: translate(-50%, 100%); }
   to { transform: translate(-50%, 0); }
+}
+/* Drag handle, как в iOS */
+.sheet-handle {
+  width: 48px;
+  height: 4px;
+  margin: 0 auto 16px;
+  border-radius: 9999px;
+  background: var(--c-muted);
+  opacity: 0.55;
 }
 
 @media (prefers-reduced-motion: reduce) {

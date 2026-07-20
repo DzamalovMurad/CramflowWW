@@ -20,9 +20,9 @@ export default function FilterPills({ selected, onSelect }: Props) {
               haptic('light');
               onSelect(id);
             }}
-            className={`whitespace-nowrap rounded-button border px-3.5 py-2 text-[12px] font-bold uppercase tracking-wide transition-colors ${
+            className={`whitespace-nowrap rounded-button border px-3.5 py-2 font-mono text-[12px] font-bold uppercase tracking-wide transition-colors ${
               active
-                ? 'border-transparent bg-accent text-on-accent'
+                ? 'neon-glow border-transparent bg-accent text-on-accent'
                 : 'border-line bg-surface text-muted'
             }`}
           >

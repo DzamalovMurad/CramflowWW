@@ -57,7 +57,7 @@ export default function Header({
   const navigate = useNavigate();
 
   return (
-    <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-line bg-page/80 px-4 backdrop-blur-xl">
+    <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-line bg-page px-4">
       <div className="flex flex-shrink-0 items-center gap-1">
         {showBack && (
           <button

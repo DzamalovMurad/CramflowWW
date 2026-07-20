@@ -68,7 +68,7 @@ export default function Catalog() {
   return (
     <div className="pb-24">
       <Header search={{ value: query, onChange: setQuery }} />
-      <div className="sticky top-14 z-10 border-b border-line bg-page/95 backdrop-blur">
+      <div className="sticky top-14 z-10 border-b border-line bg-page">
         <CategoryChips selected={category} onSelect={(c) => updateParams('category', c)} />
         <FilterPills selected={filter} onSelect={(f) => updateParams('filter', f)} />
       </div>

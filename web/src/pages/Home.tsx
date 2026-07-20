@@ -133,8 +133,8 @@ export default function Home() {
         )}
       </section>
 
-      {/* ФИЛЬТРЫ — прилипают к верху при скролле */}
-      <div className="sticky top-0 z-10 mt-2 border-b border-line bg-page/95 backdrop-blur">
+      {/* ФИЛЬТРЫ — прилипают к верху; фон сплошной, карточки уходят под него без «грязи» */}
+      <div className="sticky top-0 z-10 mt-2 border-b border-line bg-page">
         <CategoryChips selected={category} onSelect={setCategory} />
         <div className="flex items-center gap-1 pr-2">
           <div className="min-w-0 flex-1">
@@ -227,7 +227,7 @@ export default function Home() {
         <>
           <div className="sheet-overlay animate-fade-in" onClick={() => setSheetOpen(false)} />
           <div className="sheet">
-            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-line" />
+            <div className="sheet-handle" />
             <h3 className="display mb-3 text-[19px]">{content.sort.title}</h3>
             {(
               [

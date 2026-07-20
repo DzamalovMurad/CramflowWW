@@ -114,6 +114,8 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
                 }`}
               />
             )}
+            {/* Градиент снизу: текст и «+» читаются на любом фото */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[30%] bg-gradient-to-t from-black/60 to-transparent" />
           </div>
         </Link>
 

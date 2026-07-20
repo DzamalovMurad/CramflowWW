@@ -1,6 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 import Stepper from '../components/Stepper';
+import SwipeToDelete from '../components/SwipeToDelete';
 import { useCart } from '../cart';
 import { tg } from '../telegram';
 import { content } from '../content';
@@ -37,42 +38,43 @@ export default function Cart() {
     <div className="pb-36">
       <Header title={content.cart.title} showBack={!tg()} />
 
-      <div className="divide-y divide-line px-4">
+      <div className="divide-y divide-line">
         {items.map((item, i) => (
-          <div
-            key={item.variantId}
-            className="animate-fade-up flex gap-3.5 py-4"
-            style={{ animationDelay: `${i * 50}ms` }}
-          >
-            <Link to={`/product/${item.productId}`} className="flex-shrink-0">
-              <div className="h-[88px] w-[72px] overflow-hidden rounded-card bg-tile">
-                {item.image && (
-                  <img src={item.image} alt={item.productName} className="h-full w-full object-cover" />
-                )}
-              </div>
-            </Link>
-            <div className="flex min-w-0 flex-1 flex-col">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium lowercase">{item.productName}</p>
-                  <p className="mt-0.5 text-xs lowercase text-muted">
-                    {item.flowersCount} {content.product.flowersUnit} {content.cart.inBouquet}
-                  </p>
+          <SwipeToDelete key={item.variantId} onDelete={() => remove(item.variantId)}>
+            <div
+              className="animate-fade-up flex gap-3.5 px-4 py-4"
+              style={{ animationDelay: `${i * 50}ms` }}
+            >
+              <Link to={`/product/${item.productId}`} className="flex-shrink-0">
+                <div className="h-[88px] w-[72px] overflow-hidden rounded-card bg-tile">
+                  {item.image && (
+                    <img src={item.image} alt={item.productName} className="h-full w-full object-cover" />
+                  )}
                 </div>
-                <button
-                  onClick={() => remove(item.variantId)}
-                  aria-label="удалить"
-                  className="-mr-1 flex h-7 w-7 items-center justify-center text-muted active:opacity-50"
-                >
-                  <IconClose size={15} />
-                </button>
-              </div>
-              <div className="mt-auto flex items-center justify-between pt-2">
-                <Stepper value={item.qty} onChange={(v) => setQty(item.variantId, v)} />
-                <span className="font-mono text-[15px] font-bold">{formatPrice(item.price * item.qty)}</span>
+              </Link>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium lowercase">{item.productName}</p>
+                    <p className="mt-0.5 text-xs lowercase text-muted">
+                      {item.flowersCount} {content.product.flowersUnit} {content.cart.inBouquet}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => remove(item.variantId)}
+                    aria-label="удалить"
+                    className="-mr-1 flex h-7 w-7 items-center justify-center text-muted active:opacity-50"
+                  >
+                    <IconClose size={15} />
+                  </button>
+                </div>
+                <div className="mt-auto flex items-center justify-between pt-2">
+                  <Stepper value={item.qty} onChange={(v) => setQty(item.variantId, v)} />
+                  <span className="font-mono text-[15px] font-bold">{formatPrice(item.price * item.qty)}</span>
+                </div>
               </div>
             </div>
-          </div>
+          </SwipeToDelete>
         ))}
       </div>
 
