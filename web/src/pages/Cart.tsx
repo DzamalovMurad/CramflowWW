@@ -69,7 +69,7 @@ export default function Cart() {
               </div>
               <div className="mt-auto flex items-center justify-between pt-2">
                 <Stepper value={item.qty} onChange={(v) => setQty(item.variantId, v)} />
-                <span className="text-[15px] font-bold">{formatPrice(item.price * item.qty)}</span>
+                <span className="font-mono text-[15px] font-bold">{formatPrice(item.price * item.qty)}</span>
               </div>
             </div>
           </div>
@@ -79,7 +79,7 @@ export default function Cart() {
       <div className="pb-safe fixed bottom-0 left-1/2 z-20 w-full max-w-md -translate-x-1/2 border-t border-line bg-page/95 px-4 pt-3 backdrop-blur">
         <div className="mb-3 flex items-baseline justify-between">
           <span className="text-sm lowercase text-muted">{content.cart.total}</span>
-          <span className="text-xl font-bold">{formatPrice(total)}</span>
+          <span className="font-mono text-xl font-bold">{formatPrice(total)}</span>
         </div>
         <button
           onClick={() => navigate('/checkout')}

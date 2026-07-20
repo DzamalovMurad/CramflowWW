@@ -140,7 +140,7 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
               >
                 <IconMinus size={16} />
               </button>
-              <span className="flex-1 text-center text-[14px] font-extrabold tabular-nums">
+              <span className="flex-1 text-center font-mono text-[14px] font-bold tabular-nums">
                 {qty}
               </span>
               <button
@@ -169,9 +169,9 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
         <p className="label mb-1 !text-[10px] text-accent-2">{content.catalog.deliveryToday}</p>
         <p className="line-clamp-1 text-[14px] font-bold leading-snug">{product.name}</p>
         <div className="mt-1 flex items-baseline gap-2">
-          <span className="text-[16px] font-extrabold">{formatPrice(product.price)}</span>
+          <span className="font-mono text-[16px] font-bold">{formatPrice(product.price)}</span>
           {off > 0 && (
-            <span className="text-[13px] font-medium text-muted line-through">
+            <span className="font-mono text-[13px] font-medium text-muted line-through">
               {formatPrice(product.old_price!)}
             </span>
           )}

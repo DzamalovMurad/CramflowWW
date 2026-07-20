@@ -279,19 +279,19 @@ export default function Checkout() {
             <>
               <div className="flex justify-between text-sm lowercase text-muted">
                 <span>{c.subtotal}</span>
-                <span>{formatPrice(total)}</span>
+                <span className="font-mono">{formatPrice(total)}</span>
               </div>
               <div className="flex justify-between text-sm lowercase text-accent-2">
                 <span>
                   {c.discount} {promo.discount_percent}%
                 </span>
-                <span>−{formatPrice(total - discounted)}</span>
+                <span className="font-mono">−{formatPrice(total - discounted)}</span>
               </div>
             </>
           )}
           <div className="flex justify-between text-lg font-bold lowercase">
             <span>{c.total}</span>
-            <span>{formatPrice(discounted)}</span>
+            <span className="font-mono">{formatPrice(discounted)}</span>
           </div>
         </div>
 

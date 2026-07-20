@@ -128,9 +128,9 @@ export default function ProductPage() {
           className="btn-accent flex w-full items-center justify-between rounded-button px-5 py-4 text-[15px] font-bold lowercase text-on-accent disabled:opacity-50"
         >
           <span>{content.product.addToCart}</span>
-          <span className="flex items-baseline gap-2">
+          <span className="flex items-baseline gap-2 font-mono">
             {totalOld > 0 && (
-              <span className="text-[13px] font-medium opacity-60 line-through">{formatPrice(totalOld)}</span>
+              <span className="font-mono text-[13px] font-medium opacity-60 line-through">{formatPrice(totalOld)}</span>
             )}
             {formatPrice(total)}
           </span>

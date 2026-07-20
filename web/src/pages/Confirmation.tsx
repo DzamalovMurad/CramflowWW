@@ -38,7 +38,7 @@ export default function Confirmation() {
                   {item.product_name} · {item.variant.quantity} шт
                   {item.quantity > 1 && <span className="text-muted"> ×{item.quantity}</span>}
                 </span>
-                <span className="whitespace-nowrap font-medium">
+                <span className="whitespace-nowrap font-mono font-medium">
                   {formatPrice(item.price * item.quantity)}
                 </span>
               </div>
@@ -53,7 +53,7 @@ export default function Confirmation() {
           )}
           <div className="mt-4 flex justify-between border-t border-line pt-3.5 font-bold lowercase">
             <span>{c.total}</span>
-            <span>{formatPrice(order.total_price)}</span>
+            <span className="font-mono">{formatPrice(order.total_price)}</span>
           </div>
           <p className="mt-3 text-xs lowercase leading-relaxed text-muted">
             {c.delivery}: {order.delivery_address} · {order.delivery_date}, {order.delivery_time}

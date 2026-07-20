@@ -19,9 +19,10 @@
   --c-accent-2: #4E9A00; /* тёмный лайм для текста на светлом (контраст AA) */
   --c-on-accent: #0E0F0C; /* чёрный текст на неоновых плашках */
 
-  /* Типографика */
-  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --font-display: 'Inter', system-ui, sans-serif; /* заголовки — жирный гротеск */
+  /* Типографика: Onest — текст и заголовки, JetBrains Mono — цены/бейджи/подписи */
+  --font-body: 'Onest', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Onest', system-ui, sans-serif; /* заголовки — жирный гротеск */
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace;
 
   /* Геометрия */
   --radius-card: 20px; /* карточки, плитки фото */
@@ -91,7 +92,7 @@ body {
 
 /* Подписи секций — моноширинным капсом, как у Bunch */
 .label {
-  font-family: 'SFMono-Regular', ui-monospace, 'Roboto Mono', Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 700;
   color: var(--c-muted);
@@ -228,9 +229,10 @@ body {
   gap: 4px;
   padding: 5px 10px;
   border-radius: 9999px;
+  font-family: var(--font-mono);
   font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   line-height: 1;
 }
