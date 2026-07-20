@@ -211,6 +211,19 @@ body {
   box-shadow: none;
 }
 
+/* Усиленный вариант для главного CTA (оформление заказа) */
+.btn-accent-strong {
+  box-shadow: 0 0 20px rgba(128, 255, 0, 0.4);
+  transition: transform 0.2s ease, box-shadow 0.3s ease;
+}
+.btn-accent-strong:hover:not(:disabled) {
+  transform: scale(1.015);
+  box-shadow: 0 0 28px rgba(128, 255, 0, 0.5);
+}
+.btn-accent-strong:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
 /* Плавающая круглая «+» на карточке (добавить в корзину в один тап) */
 .fab-add {
   background: var(--c-accent);

@@ -6,11 +6,13 @@ import { useCart } from '../cart';
 import { haptic, tg } from '../telegram';
 import { content } from '../content';
 import { DELIVERY_MODES, formatPrice, type DeliveryMode } from '../types';
+import { IconCheck } from '../components/icons';
 
 const c = content.checkout;
 
+// Поля: плотный фон поверхности, тонкая рамка, неоновая подсветка при фокусе.
 const inputCls =
-  'w-full rounded-card bg-tile px-4 py-3.5 text-[15px] text-ink outline-none transition-shadow placeholder:text-muted focus:ring-1 focus:ring-ink';
+  'w-full rounded-input border border-line bg-surface px-4 py-3.5 text-[15px] text-ink outline-none transition-all duration-200 placeholder:text-muted focus:border-accent focus:shadow-[0_0_10px_rgba(128,255,0,0.2)]';
 
 function Field({ label, optional, children }: { label: string; optional?: string; children: ReactNode }) {
   return (
@@ -173,8 +175,10 @@ export default function Checkout() {
                   haptic('light');
                   setMode(m);
                 }}
-                className={`rounded-button py-3 text-[13px] font-medium transition-colors ${
-                  mode === m ? 'bg-ink text-page' : 'bg-tile text-ink'
+                className={`rounded-input border py-3.5 font-mono text-[12px] font-bold uppercase tracking-wide transition-all duration-200 active:scale-[0.97] ${
+                  mode === m
+                    ? 'neon-glow border-transparent bg-accent text-on-accent'
+                    : 'border-line bg-surface text-muted'
                 }`}
               >
                 {m}
@@ -222,23 +226,40 @@ export default function Checkout() {
         </Field>
 
         <div>
-          <label className="flex items-center gap-3 rounded-card bg-tile px-4 py-3.5 cursor-pointer">
+          <label className="flex cursor-pointer items-center gap-3 rounded-input border border-line bg-surface px-4 py-3.5 transition-colors">
             <input
               type="checkbox"
               checked={isAnonymous}
-              onChange={(e) => setIsAnonymous(e.target.checked)}
-              className="h-5 w-5 cursor-pointer rounded accent-accent"
+              onChange={(e) => {
+                haptic('light');
+                setIsAnonymous(e.target.checked);
+              }}
+              className="sr-only"
             />
-            <span className="text-[15px] text-ink">{c.anonymous}</span>
+            <span
+              aria-hidden
+              className={`flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-md border-2 transition-all duration-200 ${
+                isAnonymous ? 'neon-glow border-transparent bg-accent' : 'border-line bg-transparent'
+              }`}
+            >
+              <span
+                className={`text-on-accent transition-transform duration-200 ${
+                  isAnonymous ? 'scale-100' : 'scale-0'
+                }`}
+              >
+                <IconCheck size={13} />
+              </span>
+            </span>
+            <span className="text-[15px] lowercase text-ink">{c.anonymous}</span>
           </label>
         </div>
 
         <Field label={c.promo}>
           {promo ? (
-            <div className="flex items-center justify-between rounded-card bg-tile px-4 py-3.5">
-              <span className="flex items-center gap-2 text-sm font-medium">
-                <span className="h-1.5 w-1.5 rounded-full bg-accent-2" />
-                {promo.code} — {c.promoDiscount} {promo.discount_percent}%
+            <div className="flex items-center justify-between rounded-input border border-accent/50 bg-surface px-4 py-3.5 shadow-[0_0_10px_rgba(128,255,0,0.12)]">
+              <span className="flex items-center gap-2 font-mono text-[13px] font-bold uppercase">
+                <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+                {promo.code} <span className="text-accent-2">−{promo.discount_percent}%</span>
               </span>
               {promoSource === 'form' && (
                 <button
@@ -265,7 +286,7 @@ export default function Checkout() {
               <button
                 type="button"
                 onClick={applyPromo}
-                className="whitespace-nowrap rounded-button bg-tile px-4 text-sm font-medium lowercase active:opacity-60"
+                className="whitespace-nowrap rounded-input border border-line bg-surface px-4 font-mono text-[12px] font-bold uppercase tracking-wide text-ink transition-transform active:scale-95"
               >
                 {c.promoApply}
               </button>
@@ -274,24 +295,25 @@ export default function Checkout() {
           {promoError && <p className="mt-1.5 text-xs lowercase text-red-500">{promoError}</p>}
         </Field>
 
-        <div className="space-y-1.5 border-t border-line pt-4">
+        {/* Итог: подписи и промежуточные суммы — mono, финальная сумма — жирный гротеск */}
+        <div className="rounded-card border border-line bg-surface p-5">
           {promo && (
-            <>
-              <div className="flex justify-between text-sm lowercase text-muted">
+            <div className="mb-3 space-y-1.5 border-b border-line pb-3">
+              <div className="flex justify-between font-mono text-[13px] uppercase text-muted">
                 <span>{c.subtotal}</span>
-                <span className="font-mono">{formatPrice(total)}</span>
+                <span>{formatPrice(total)}</span>
               </div>
-              <div className="flex justify-between text-sm lowercase text-accent-2">
+              <div className="flex justify-between font-mono text-[13px] uppercase text-accent-2">
                 <span>
                   {c.discount} {promo.discount_percent}%
                 </span>
-                <span className="font-mono">−{formatPrice(total - discounted)}</span>
+                <span>−{formatPrice(total - discounted)}</span>
               </div>
-            </>
+            </div>
           )}
-          <div className="flex justify-between text-lg font-bold lowercase">
-            <span>{c.total}</span>
-            <span className="font-mono">{formatPrice(discounted)}</span>
+          <div className="flex items-baseline justify-between">
+            <span className="label">{c.total}</span>
+            <span className="text-[28px] font-extrabold tracking-tight">{formatPrice(discounted)}</span>
           </div>
         </div>
 
@@ -300,7 +322,7 @@ export default function Checkout() {
         <button
           type="submit"
           disabled={submitting || !deliveryTime}
-          className="btn-accent w-full rounded-button py-4 text-[15px] font-bold lowercase text-on-accent disabled:opacity-50"
+          className="btn-accent btn-accent-strong w-full rounded-button py-4 text-[15px] font-bold lowercase text-on-accent disabled:opacity-50"
         >
           {submitting ? c.submitting : c.submit}
         </button>
