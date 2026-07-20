@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import Home from './pages/Home';
 import Catalog from './pages/Catalog';
@@ -8,11 +8,26 @@ import Checkout from './pages/Checkout';
 import Confirmation from './pages/Confirmation';
 import Profile from './pages/Profile';
 import TabBar from './components/TabBar';
+import AppLoader from './components/AppLoader';
+import { warmUp } from './api';
 import { tg } from './telegram';
 
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Стартовая заставка: минимум 1.5с, максимум 3с; за это время
+  // warmUp() кладёт каталог и первые фото букетов в кэш.
+  const [booted, setBooted] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const min = new Promise((r) => setTimeout(r, 1500));
+    const cap = new Promise((r) => setTimeout(r, 3000));
+    Promise.race([Promise.all([warmUp(), min]), cap]).then(() => alive && setBooted(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Кнопка «Назад» Telegram на всех страницах, кроме главной.
   useEffect(() => {
@@ -51,6 +66,7 @@ export default function App() {
         <Route path="/profile" element={<Profile />} />
       </Routes>
       {showTabBar && <TabBar />}
+      <AppLoader done={booted} />
     </div>
   );
 }

@@ -1,13 +1,12 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useCart } from '../cart';
 import { haptic } from '../telegram';
-import { IconHome, IconGrid, IconBag, IconUser } from './icons';
+import { IconGrid, IconBag, IconUser } from './icons';
 
 type Tab = { to: string; label: string; Icon: (p: { size?: number }) => JSX.Element; cart?: boolean };
 
 const tabs: Tab[] = [
-  { to: '/', label: 'главная', Icon: IconHome },
-  { to: '/catalog', label: 'каталог', Icon: IconGrid },
+  { to: '/', label: 'меню', Icon: IconGrid },
   { to: '/cart', label: 'корзина', Icon: IconBag, cart: true },
   { to: '/profile', label: 'профиль', Icon: IconUser },
 ];

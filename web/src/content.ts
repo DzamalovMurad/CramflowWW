@@ -11,8 +11,18 @@ export const content = {
     title: 'цветы, которые хочется дарить',
     subtitle: 'свежие букеты, собранные вручную. предзаказ к нужному времени.',
     cta: 'выбрать букет',
-    categories: 'категории',
     freshToday: 'сегодня на базе',
+    sectionTitle: 'букеты',
+    shelfTitle: 'wow-букеты',
+    shelfCaption: 'составные композиции, которые запоминают надолго',
+    shelfAll: 'все',
+  },
+
+  sort: {
+    title: 'сортировка',
+    default: 'по умолчанию',
+    cheap: 'сначала дешевле',
+    expensive: 'сначала дороже',
   },
 
   catalog: {

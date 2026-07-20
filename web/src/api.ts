@@ -26,6 +26,40 @@ export function fetchProducts(category: string, filter: string, search = ''): Pr
   return request(`/api/products${qs ? `?${qs}` : ''}`);
 }
 
+// Кэш полного каталога: греется лоадером при старте, TTL 60с,
+// чтобы правки из админ-бота не «зависали» в приложении.
+let allCache: { at: number; data: Promise<ProductCard[]> } | null = null;
+
+export function fetchAllProducts(): Promise<ProductCard[]> {
+  if (allCache && Date.now() - allCache.at < 60_000) return allCache.data;
+  const data = fetchProducts('', '');
+  allCache = { at: Date.now(), data };
+  data.catch(() => {
+    allCache = null;
+  });
+  return data;
+}
+
+/** Прогрев для стартового лоадера: каталог + первые фото букетов в кэш браузера. */
+export async function warmUp(): Promise<void> {
+  try {
+    const list = await fetchAllProducts();
+    await Promise.all(
+      list.slice(0, 6).map((p) =>
+        p.image
+          ? new Promise<void>((res) => {
+              const im = new Image();
+              im.onload = im.onerror = () => res();
+              im.src = p.image;
+            })
+          : Promise.resolve(),
+      ),
+    );
+  } catch {
+    // Лоадер не должен блокировать вход при ошибке сети.
+  }
+}
+
 export function fetchProduct(id: number | string): Promise<Product> {
   return request(`/api/products/${id}`);
 }

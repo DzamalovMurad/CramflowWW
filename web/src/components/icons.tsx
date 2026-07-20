@@ -111,3 +111,12 @@ export function IconSearch({ size = 18 }: { size?: number }) {
     </svg>
   );
 }
+
+export function IconSort({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...base}>
+      <path d="M8 5v14M8 5L5 8M8 5l3 3" />
+      <path d="M16 19V5M16 19l-3-3M16 19l3-3" />
+    </svg>
+  );
+}

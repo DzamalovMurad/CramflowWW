@@ -10,6 +10,40 @@ interface SearchProps {
   placeholder?: string;
 }
 
+/** Шапка меню (главная): крупный центрированный wordmark + строка поиска.
+    Не sticky — при скролле сверху остаются только фильтры (как у Bunch). */
+export function MenuHeader() {
+  return (
+    <header className="border-b border-line bg-page px-4 pb-3 pt-2.5">
+      <div className="relative flex h-10 items-center justify-center">
+        <Link to="/" className="text-[26px] font-extrabold lowercase tracking-tight">
+          {content.brand}
+          <span className="text-accent-2">.</span>
+        </Link>
+        <button
+          type="button"
+          aria-label="сменить тему"
+          onClick={() => {
+            haptic('light');
+            toggleTheme();
+          }}
+          className="theme-toggle absolute right-0 flex h-9 w-9 items-center justify-center rounded-full border border-line bg-tile/60 text-ink active:scale-90"
+        >
+          <span className="icon-sun"><IconSun size={18} /></span>
+          <span className="icon-moon"><IconMoon size={18} /></span>
+        </button>
+      </div>
+      <Link
+        to="/catalog"
+        className="mt-2 flex items-center justify-between rounded-full border border-line bg-surface px-4 py-2.5 shadow-card"
+      >
+        <span className="text-[14px] lowercase text-muted">{content.catalog.searchPlaceholder}</span>
+        <span className="text-muted"><IconSearch size={17} /></span>
+      </Link>
+    </header>
+  );
+}
+
 /** Шапка: wordmark + (поиск ↔ заголовок) + переключатель темы. Корзина — в нижнем меню. */
 export default function Header({
   title,

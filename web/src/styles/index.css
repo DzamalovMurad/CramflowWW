@@ -89,13 +89,15 @@ body {
   text-transform: lowercase;
 }
 
-/* Подписи секций — капсом с разрядкой, как у Bunch */
+/* Подписи секций — моноширинным капсом, как у Bunch */
 .label {
+  font-family: 'SFMono-Regular', ui-monospace, 'Roboto Mono', Menlo, Consolas, monospace;
   font-size: 11px;
   font-weight: 700;
   color: var(--c-muted);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Горизонтальные ленты (чипы, галерея) — без скроллбара */
@@ -192,17 +194,16 @@ body {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* Главная акцентная кнопка: плоский неон, чёрный текст, мягкая цветная тень */
+/* Главная акцентная кнопка: плоский неон, чёрный текст, мягкая цветная тень.
+   Анимируем только transform — иначе на тёмной теме кнопка мерцает. */
 .btn-accent {
   background: var(--c-accent);
   color: var(--c-on-accent);
   box-shadow: var(--accent-shadow);
-  transition: transform 0.15s ease, box-shadow 0.25s ease, filter 0.2s ease;
+  transition: transform 0.15s ease;
 }
 .btn-accent:active {
   transform: scale(0.97);
-  filter: brightness(0.97);
-  box-shadow: 0 3px 10px -4px rgba(131, 247, 14, 0.4);
 }
 .btn-accent:disabled {
   opacity: 0.5;
@@ -232,14 +233,13 @@ body {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   line-height: 1;
-  backdrop-filter: blur(6px);
 }
 .badge-hit {
   background: var(--c-accent);
   color: var(--c-on-accent);
 }
 .badge-sale {
-  background: rgba(14, 15, 12, 0.82);
+  background: rgba(14, 15, 12, 0.9);
   color: #fff;
 }
 .badge-stock {
@@ -276,96 +276,127 @@ body {
 }
 
 /* ============================================================
-   ГЕРОЙ ГЛАВНОЙ: неоновая аврора + парящие лепестки (без фото)
-   Всё на transform/opacity — дёшево для GPU, без blur-фильтров.
-   Единый «ночной сад» в обеих темах: белый текст читается всегда.
+   СТАРТОВЫЙ ЛОАДЕР: показывается один раз, пока греются каталог
+   и первые фото букетов (реальная оптимизация, не декорация)
    ============================================================ */
-.hero-aurora {
-  position: absolute;
+.app-loader {
+  position: fixed;
   inset: 0;
-  overflow: hidden;
-  background:
-    radial-gradient(90% 60% at 50% 42%, rgba(131, 247, 14, 0.1), transparent 70%),
-    radial-gradient(120% 80% at 50% 120%, #1c1030 0%, #0c0713 60%),
-    #0c0713;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  /* Всегда тёмный — фирменная заставка, не зависит от темы */
+  background: #0c0d0a;
+  color: #f2f4ec;
+  transition: opacity 0.45s ease, visibility 0.45s ease;
 }
-.hero-aurora .blob {
-  position: absolute;
+.app-loader-out {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.loader-mark {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  text-transform: lowercase;
+  animation: loader-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both, mark-pulse 1.6s ease-in-out 0.6s infinite;
+}
+@keyframes mark-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+.loader-dot {
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
-  will-change: transform;
-  mix-blend-mode: screen;
+  background: #83f70e;
+  box-shadow: 0 0 18px #83f70e;
+  animation: dot-pulse 1.1s ease-in-out infinite;
 }
-.hero-aurora .blob-1 {
-  width: 70vmin;
-  height: 70vmin;
-  top: -18vmin;
-  left: -10vmin;
-  background: radial-gradient(closest-side, rgba(131, 247, 14, 0.55), transparent 70%);
-  animation: aurora-1 18s ease-in-out infinite alternate;
+@keyframes dot-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.65); }
 }
-.hero-aurora .blob-2 {
-  width: 66vmin;
-  height: 66vmin;
-  top: 6vmin;
-  right: -18vmin;
-  background: radial-gradient(closest-side, rgba(255, 77, 157, 0.5), transparent 70%);
-  animation: aurora-2 22s ease-in-out infinite alternate;
+@keyframes loader-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.95); }
+  to { opacity: 1; transform: none; }
 }
-.hero-aurora .blob-3 {
-  width: 60vmin;
-  height: 60vmin;
-  bottom: -6vmin;
-  left: 18vmin;
-  background: radial-gradient(closest-side, rgba(124, 77, 255, 0.5), transparent 70%);
-  animation: aurora-3 26s ease-in-out infinite alternate;
+.loader-bar {
+  width: 130px;
+  height: 3px;
+  border-radius: 9999px;
+  background: #1e211a;
+  overflow: hidden;
 }
-.hero-aurora .blob-4 {
-  width: 48vmin;
-  height: 48vmin;
-  top: 30vmin;
-  left: 30vmin;
-  background: radial-gradient(closest-side, rgba(255, 176, 32, 0.4), transparent 70%);
-  animation: aurora-1 30s ease-in-out infinite alternate-reverse;
+.loader-bar span {
+  display: block;
+  height: 100%;
+  width: 40%;
+  border-radius: inherit;
+  background: #83f70e;
+  animation: bar-slide 1s ease-in-out infinite;
 }
-@keyframes aurora-1 {
-  from { transform: translate(0, 0) scale(1); }
-  to { transform: translate(10vmin, 8vmin) scale(1.18); }
-}
-@keyframes aurora-2 {
-  from { transform: translate(0, 0) scale(1.1); }
-  to { transform: translate(-12vmin, 6vmin) scale(1); }
-}
-@keyframes aurora-3 {
-  from { transform: translate(0, 0) scale(1); }
-  to { transform: translate(8vmin, -10vmin) scale(1.15); }
+@keyframes bar-slide {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(310%); }
 }
 
-/* Парящие лепестки: несколько лёгких элементов поднимаются со сдвигом */
-.petal {
-  position: absolute;
-  bottom: -8%;
-  width: 16px;
-  height: 16px;
-  border-radius: 60% 0 60% 0;
-  background: linear-gradient(140deg, #ffffff, rgba(255, 182, 213, 0.85));
-  box-shadow: 0 0 10px rgba(255, 255, 255, 0.45);
-  opacity: 0;
-  will-change: transform, opacity;
-  animation: petal-rise linear infinite;
+/* Баннер-карусель: горизонтальный snap-скролл */
+.banner-scroll {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
-@keyframes petal-rise {
-  0% { transform: translateY(0) translateX(0) rotate(0deg); opacity: 0; }
-  15% { opacity: 0.95; }
-  85% { opacity: 0.8; }
-  100% { transform: translateY(-88vh) translateX(6vw) rotate(220deg); opacity: 0; }
+.banner-scroll::-webkit-scrollbar { display: none; }
+.banner-card {
+  flex: 0 0 100%;
+  scroll-snap-align: center;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  min-height: 150px;
+}
+
+/* Шторка сортировки */
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  background: rgba(0, 0, 0, 0.45);
+}
+.sheet {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 28rem;
+  z-index: 46;
+  border-radius: 24px 24px 0 0;
+  background: var(--c-surface);
+  padding: 10px 20px calc(env(safe-area-inset-bottom) + 20px);
+  animation: sheet-up 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes sheet-up {
+  from { transform: translate(-50%, 100%); }
+  to { transform: translate(-50%, 0); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hero-aurora .blob,
-  .petal {
+  .loader-dot,
+  .loader-bar span,
+  .loader-mark {
     animation: none;
   }
-  .petal { opacity: 0.5; }
 }
 
 /* Переключатель темы: солнце ⇄ луна с поворотом */
