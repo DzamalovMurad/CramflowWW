@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -28,6 +29,27 @@ type Bot struct {
 	// Состояние визардов /add и /edit — по chat_id, апдейты обрабатываются
 	// последовательно в Run(), поэтому map без мьютекса.
 	wizards map[int64]*wizard
+
+	// Журнал сообщений в админ-чатах для /clean. Мьютекс нужен:
+	// NotifyNewOrder пишет из горутины сервиса.
+	msgLog map[int64][]int
+	logMu  sync.Mutex
+}
+
+const msgLogCap = 400 // сколько последних сообщений помним на чат
+
+// remember сохраняет id сообщения в админ-чате, чтобы /clean мог его удалить.
+func (b *Bot) remember(chatID int64, msgID int) {
+	if msgID == 0 || !b.isAdmin(chatID) {
+		return
+	}
+	b.logMu.Lock()
+	defer b.logMu.Unlock()
+	ids := append(b.msgLog[chatID], msgID)
+	if len(ids) > msgLogCap {
+		ids = ids[len(ids)-msgLogCap:]
+	}
+	b.msgLog[chatID] = ids
 }
 
 func (b *Bot) isAdmin(id int64) bool {
@@ -70,6 +92,7 @@ func NewBot(token string, adminIDs []int64, appURL string, repo *repository.Repo
 		adminIDs: adminIDs,
 		appURL:   appURL,
 		wizards:  map[int64]*wizard{},
+		msgLog:   map[int64][]int{},
 	}
 	svc.NotifyNewOrder = b.NotifyNewOrder
 	return b, nil
@@ -98,17 +121,54 @@ func (b *Bot) Run() {
 
 func (b *Bot) send(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
-	if _, err := b.api.Send(msg); err != nil {
+	m, err := b.api.Send(msg)
+	if err != nil {
 		log.Printf("bot send: %v", err)
+		return
 	}
+	b.remember(chatID, m.MessageID)
 }
 
 func (b *Bot) sendKb(chatID int64, text string, kb tgbotapi.InlineKeyboardMarkup) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ReplyMarkup = kb
-	if _, err := b.api.Send(msg); err != nil {
+	m, err := b.api.Send(msg)
+	if err != nil {
 		log.Printf("bot send: %v", err)
+		return
 	}
+	b.remember(chatID, m.MessageID)
+}
+
+// sendTemp — служебное сообщение, которое самоуничтожается через ttl.
+func (b *Bot) sendTemp(chatID int64, text string, ttl time.Duration) {
+	m, err := b.api.Send(tgbotapi.NewMessage(chatID, text))
+	if err != nil {
+		log.Printf("bot send: %v", err)
+		return
+	}
+	time.AfterFunc(ttl, func() {
+		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(chatID, m.MessageID)); err != nil {
+			log.Printf("bot temp delete: %v", err)
+		}
+	})
+}
+
+// cleanChat — /clean: удаляет все запомненные сообщения диалога
+// (Telegram позволяет удалять сообщения младше 48 часов; старые пропускаем).
+func (b *Bot) cleanChat(chatID int64) {
+	b.logMu.Lock()
+	ids := b.msgLog[chatID]
+	delete(b.msgLog, chatID)
+	b.logMu.Unlock()
+
+	deleted := 0
+	for _, id := range ids {
+		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(chatID, id)); err == nil {
+			deleted++
+		}
+	}
+	b.sendTemp(chatID, fmt.Sprintf("🧹 Убрано %d сообщений.", deleted), 4*time.Second)
 }
 
 // editKb — правит текст и клавиатуру существующего сообщения (чистый чат вместо спама).
@@ -128,6 +188,9 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		return
 	}
 
+	// Помним и входящие сообщения админа — /clean уберёт и их.
+	b.remember(msg.Chat.ID, msg.MessageID)
+
 	if msg.IsCommand() {
 		switch msg.Command() {
 		case "start", "help":
@@ -140,6 +203,7 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 				"/hide — скрыть/показать товар\n"+
 				"/delete — удалить товар\n"+
 				"/fresh — что сегодня свежее на базе\n"+
+				"/clean — 🧹 очистить историю чата\n"+
 				"/cancel — прервать текущее действие")
 		case "fresh":
 			if items := strings.TrimSpace(msg.CommandArguments()); items != "" {
@@ -165,9 +229,11 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 			b.sendClientSearch(msg.Chat.ID, msg.CommandArguments())
 		case "done":
 			b.wizardDone(msg.Chat.ID)
+		case "clean":
+			b.cleanChat(msg.Chat.ID)
 		case "cancel":
 			delete(b.wizards, msg.Chat.ID)
-			b.send(msg.Chat.ID, "Действие отменено.")
+			b.sendTemp(msg.Chat.ID, "Действие отменено.", 4*time.Second)
 		default:
 			b.send(msg.Chat.ID, "Неизвестная команда. /help — список команд.")
 		}
@@ -323,7 +389,7 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 			return
 		}
 		delete(b.wizards, chatID)
-		b.send(chatID, "✅ Изменения сохранены.")
+		b.sendTemp(chatID, "✅ Изменения сохранены.", 5*time.Second)
 	case "edit_variants":
 		variants := parseVariants(text)
 		if len(variants) == 0 {
@@ -335,7 +401,7 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 			return
 		}
 		delete(b.wizards, chatID)
-		b.send(chatID, "✅ Изменения сохранены.")
+		b.sendTemp(chatID, "✅ Изменения сохранены.", 5*time.Second)
 	case "edit_discount":
 		pct, err := strconv.Atoi(strings.TrimSpace(text))
 		if err != nil || pct < 0 || pct > 99 {
@@ -348,7 +414,7 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 		}
 		delete(b.wizards, chatID)
 		if pct == 0 {
-			b.send(chatID, "✅ Скидка убрана.")
+			b.sendTemp(chatID, "✅ Скидка убрана.", 5*time.Second)
 		} else {
 			b.send(chatID, fmt.Sprintf("✅ Скидка −%d%% включена, на витрине появится бейдж.", pct))
 		}
@@ -364,7 +430,7 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 		}
 		delete(b.wizards, chatID)
 		if n == 0 {
-			b.send(chatID, "✅ Бейдж «осталось N» скрыт.")
+			b.sendTemp(chatID, "✅ Бейдж «осталось N» скрыт.", 5*time.Second)
 		} else {
 			b.send(chatID, fmt.Sprintf("✅ Остаток %d — бейдж появится, когда ≤ 5.", n))
 		}
@@ -425,7 +491,7 @@ func (b *Bot) wizardDone(chatID int64) {
 			return
 		}
 		delete(b.wizards, chatID)
-		b.send(chatID, "✅ Изменения сохранены.")
+		b.sendTemp(chatID, "✅ Изменения сохранены.", 5*time.Second)
 	default:
 		b.send(chatID, "Сейчас нечего завершать.")
 	}
@@ -524,7 +590,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 	case "addcancel":
 		delete(b.wizards, chatID)
-		b.send(chatID, "Добавление отменено.")
+		b.sendTemp(chatID, "Добавление отменено.", 5*time.Second)
 
 	case "edit": // выбор товара для редактирования
 		id := argAt(1)
@@ -582,9 +648,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 				return
 			}
 			if p.IsHit {
-				b.send(chatID, "⭐ Бейдж «ХИТ» убран.")
+				b.sendTemp(chatID, "⭐ Бейдж «ХИТ» убран.", 5*time.Second)
 			} else {
-				b.send(chatID, "⭐ Бейдж «ХИТ» включён.")
+				b.sendTemp(chatID, "⭐ Бейдж «ХИТ» включён.", 5*time.Second)
 			}
 		case "disc":
 			b.wizards[chatID] = &wizard{mode: "edit_discount", productID: id}
@@ -647,7 +713,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			b.send(chatID, "Ошибка: "+err.Error())
 			return
 		}
-		b.send(chatID, "🗑 Товар удалён.")
+		b.sendTemp(chatID, "🗑 Товар удалён.", 5*time.Second)
 
 	case "pg": // pg:<status>:<page> — страница заказов, редактируем сообщение на месте
 		if len(parts) < 3 {
@@ -709,6 +775,14 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	case "flt2": // фильтры новым сообщением (из финальной карточки)
 		b.sendStatusFilter(chatID)
 
+	case "x": // убрать одно сообщение
+		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(chatID, cb.Message.MessageID)); err != nil {
+			log.Printf("bot delete: %v", err)
+		}
+
+	case "clean": // очистить историю диалога
+		b.cleanChat(chatID)
+
 	case "ophoto": // фото готового букета → клиенту
 		id := argAt(1)
 		o, err := b.repo.GetOrder(id)
@@ -744,7 +818,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 				b.send(chatID, "Ошибка: "+err.Error())
 				return
 			}
-			b.send(chatID, "✅ Изменения сохранены.")
+			b.sendTemp(chatID, "✅ Изменения сохранены.", 5*time.Second)
 		}
 	}
 }
@@ -769,6 +843,10 @@ func (b *Bot) sendProductList(chatID int64, title, action string) {
 			break
 		}
 	}
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("✖️ Закрыть", "x"),
+		tgbotapi.NewInlineKeyboardButtonData("🧹 Очистить чат", "clean"),
+	))
 	b.sendKb(chatID, title, tgbotapi.NewInlineKeyboardMarkup(rows...))
 }
 
@@ -854,6 +932,10 @@ func (b *Bot) renderOrderPage(chatID int64, msgID int, status string, page int) 
 		nav = append(nav, tgbotapi.NewInlineKeyboardButtonData("Вперёд →", fmt.Sprintf("pg:%s:%d", status, page+1)))
 	}
 	rows = append(rows, nav)
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("✖️ Закрыть", "x"),
+		tgbotapi.NewInlineKeyboardButtonData("🧹 Очистить чат", "clean"),
+	))
 
 	b.editKb(chatID, msgID, sb.String(), tgbotapi.NewInlineKeyboardMarkup(rows...))
 }
@@ -886,6 +968,10 @@ func (b *Bot) sendPreorders(chatID int64) {
 	if len(btnRow) > 0 {
 		rows = append(rows, btnRow)
 	}
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("✖️ Закрыть", "x"),
+		tgbotapi.NewInlineKeyboardButtonData("🧹 Очистить чат", "clean"),
+	))
 	b.sendKb(chatID, sb.String(), tgbotapi.NewInlineKeyboardMarkup(rows...))
 }
 
@@ -948,6 +1034,10 @@ func (b *Bot) sendClientSearch(chatID int64, query string) {
 			tgbotapi.NewInlineKeyboardButtonData(
 				fmt.Sprintf("Подробнее: %s", orDash(u.Name)), fmt.Sprintf("cl:%d", u.ID))))
 	}
+	rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+		tgbotapi.NewInlineKeyboardButtonData("✖️ Закрыть", "x"),
+		tgbotapi.NewInlineKeyboardButtonData("🧹 Очистить чат", "clean"),
+	))
 	b.sendKb(chatID, sb.String(), tgbotapi.NewInlineKeyboardMarkup(rows...))
 }
 
@@ -985,6 +1075,10 @@ func (b *Bot) sendClientDetails(chatID int64, userID uint) {
 		if len(btnRow) > 0 {
 			rows = append(rows, btnRow)
 		}
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✖️ Закрыть", "x"),
+			tgbotapi.NewInlineKeyboardButtonData("🧹 Очистить чат", "clean"),
+		))
 		b.sendKb(chatID, sb.String(), tgbotapi.NewInlineKeyboardMarkup(rows...))
 		return
 	}
