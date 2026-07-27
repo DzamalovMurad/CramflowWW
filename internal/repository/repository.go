@@ -45,9 +45,9 @@ func (r *Repository) visibleProducts() ([]model.Product, error) {
 
 	var products []model.Product
 	err := r.DB.Preload("Variants", func(db *gorm.DB) *gorm.DB {
-		return db.Order("price ASC")
+		return db.Where("archived_at IS NULL").Order("price ASC")
 	}).Preload("Images").
-		Where("is_hidden = ?", false).
+		Where("is_hidden = ? AND archived_at IS NULL", false).
 		Order("created_at DESC").
 		Find(&products).Error
 	if err != nil {
@@ -114,8 +114,8 @@ func (r *Repository) ListProducts(category, filter, search string) ([]model.Prod
 
 func (r *Repository) listPopular(category, search string) ([]model.Product, error) {
 	q := r.DB.Preload("Variants", func(db *gorm.DB) *gorm.DB {
-		return db.Order("price ASC")
-	}).Preload("Images").Where("is_hidden = ?", false)
+		return db.Where("archived_at IS NULL").Order("price ASC")
+	}).Preload("Images").Where("is_hidden = ? AND archived_at IS NULL", false)
 	if category != "" {
 		q = q.Where("category = ?", category)
 	}
@@ -141,17 +141,22 @@ func (r *Repository) listPopular(category, search string) ([]model.Product, erro
 	return out, nil
 }
 
-// ListAllProducts — для админ-бота, включая скрытые.
+// ListAllProducts — для админ-бота: включая скрытые, но без архивных
+// (архивные = «удалённые», их незачем показывать в /edit, /hide, /delete).
 func (r *Repository) ListAllProducts() ([]model.Product, error) {
 	var products []model.Product
-	err := r.DB.Preload("Variants").Preload("Images").Order("id DESC").Find(&products).Error
+	err := r.DB.Preload("Variants", func(db *gorm.DB) *gorm.DB {
+		return db.Where("archived_at IS NULL").Order("price ASC")
+	}).Preload("Images").
+		Where("archived_at IS NULL").
+		Order("id DESC").Find(&products).Error
 	return products, err
 }
 
 func (r *Repository) GetProduct(id uint) (*model.Product, error) {
 	var p model.Product
 	err := r.DB.Preload("Variants", func(db *gorm.DB) *gorm.DB {
-		return db.Order("price ASC")
+		return db.Where("archived_at IS NULL").Order("price ASC")
 	}).Preload("Images").First(&p, id).Error
 	if err != nil {
 		return nil, err
@@ -169,15 +174,33 @@ func (r *Repository) SaveProduct(p *model.Product) error {
 	return r.DB.Save(p).Error
 }
 
-// ReplaceVariants заменяет все варианты товара.
+// ReplaceVariants заменяет варианты товара новым набором.
+// Старые варианты не удаляются жёстко, а архивируются: на них могут ссылаться
+// order_items прошлых заказов (FK fk_order_items_variant). Не использованные
+// нигде варианты подчищаем физически, чтобы таблица не пухла.
 func (r *Repository) ReplaceVariants(productID uint, variants []model.ProductVariant) error {
 	defer r.InvalidateCatalog()
+	now := time.Now()
 	return r.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("product_id = ?", productID).Delete(&model.ProductVariant{}).Error; err != nil {
+		// 1. Архивируем текущие варианты — с витрины исчезают сразу.
+		if err := tx.Model(&model.ProductVariant{}).
+			Where("product_id = ? AND archived_at IS NULL", productID).
+			Update("archived_at", &now).Error; err != nil {
 			return err
 		}
+		// 2. Физически удаляем те архивные, что не встречаются ни в одном заказе.
+		if err := tx.Where(`product_id = ? AND archived_at IS NOT NULL
+			AND id NOT IN (SELECT variant_id FROM order_items)`, productID).
+			Delete(&model.ProductVariant{}).Error; err != nil {
+			return err
+		}
+		// 3. Пишем новый набор.
 		for i := range variants {
 			variants[i].ProductID = productID
+			variants[i].ArchivedAt = nil
+		}
+		if len(variants) == 0 {
+			return nil
 		}
 		return tx.Create(&variants).Error
 	})
@@ -221,7 +244,7 @@ func (r *Repository) SetProductStock(id uint, stock int) error {
 func (r *Repository) SetProductDiscount(id uint, percent int) error {
 	defer r.InvalidateCatalog()
 	var variants []model.ProductVariant
-	if err := r.DB.Where("product_id = ?", id).Find(&variants).Error; err != nil {
+	if err := r.DB.Where("product_id = ? AND archived_at IS NULL", id).Find(&variants).Error; err != nil {
 		return err
 	}
 	return r.DB.Transaction(func(tx *gorm.DB) error {
@@ -239,22 +262,30 @@ func (r *Repository) SetProductDiscount(id uint, percent int) error {
 	})
 }
 
+// DeleteProduct — «удаление» товара из каталога через soft delete.
+// Жёсткий DELETE невозможен: order_items ссылается на product_variants
+// (FK fk_order_items_variant), а история заказов должна оставаться читаемой.
+// Товар помечается скрытым и archived_at — витрина его не отдаёт,
+// прошлые заказы продолжают корректно отображаться.
 func (r *Repository) DeleteProduct(id uint) error {
 	defer r.InvalidateCatalog()
-	return r.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("product_id = ?", id).Delete(&model.ProductVariant{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("product_id = ?", id).Delete(&model.ProductImage{}).Error; err != nil {
-			return err
-		}
-		return tx.Delete(&model.Product{}, id).Error
-	})
+	now := time.Now()
+	res := r.DB.Model(&model.Product{}).Where("id = ?", id).
+		Updates(map[string]any{"is_hidden": true, "archived_at": &now})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
+// GetVariant — только живой вариант: архивный заказать нельзя
+// (корзина клиента могла устареть после правки цен).
 func (r *Repository) GetVariant(id uint) (*model.ProductVariant, error) {
 	var v model.ProductVariant
-	if err := r.DB.First(&v, id).Error; err != nil {
+	if err := r.DB.Where("archived_at IS NULL").First(&v, id).Error; err != nil {
 		return nil, err
 	}
 	return &v, nil

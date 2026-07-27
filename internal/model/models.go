@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 // Категории товаров.
 const (
@@ -38,13 +42,29 @@ var StatusOrder = []string{
 	StatusDelivering, StatusDelivered, StatusCancelled,
 }
 
-// ClientStatusMessages — что бот пишет клиенту при смене статуса (пустая строка = не писать).
+// ClientStatusMessages — что бот пишет клиенту при смене статуса (нет ключа = не писать).
+// Каждый шаблон обязан содержать ровно один %d — номер заказа (см. ClientStatusText).
 var ClientStatusMessages = map[string]string{
 	StatusConfirmed:  "Заказ #%d подтверждён ✅",
-	StatusAssembling: "Собираем ваш букет 💐",
-	StatusDelivering: "Курьер в пути 🚗",
-	StatusDelivered:  "Доставлен. Спасибо! 🌸",
+	StatusAssembling: "Собираем ваш букет 💐 Заказ #%d",
+	StatusDelivering: "Курьер в пути 🚗 Заказ #%d",
+	StatusDelivered:  "Заказ #%d доставлен. Спасибо! 🌸",
 	StatusCancelled:  "Заказ #%d отменён. Если это ошибка — напишите нам.",
+}
+
+// ClientStatusText — текст уведомления клиенту о смене статуса.
+// Второе значение false, если для статуса писать не нужно.
+// Номер подставляется только при наличии %d в шаблоне — иначе в сообщение
+// попадал бы мусор вида "%!(EXTRA uint=4)".
+func ClientStatusText(status string, orderID uint) (string, bool) {
+	tmpl, ok := ClientStatusMessages[status]
+	if !ok || tmpl == "" {
+		return "", false
+	}
+	if !strings.Contains(tmpl, "%d") {
+		return tmpl, true
+	}
+	return fmt.Sprintf(tmpl, orderID), true
 }
 
 type Product struct {
@@ -55,7 +75,10 @@ type Product struct {
 	IsHidden    bool   `gorm:"not null;default:false;index" json:"is_hidden"`
 	IsHit       bool   `gorm:"not null;default:false" json:"is_hit"` // бейдж «ХИТ»
 	Stock       int    `gorm:"not null;default:0" json:"stock"`      // остаток (0 = не показывать «осталось N»)
-	CreatedAt   time.Time `json:"created_at"`
+	// ArchivedAt — товар «удалён» админом (soft delete): скрыт с витрины навсегда,
+	// но остаётся в БД, чтобы прошлые заказы читались (order_items → product_variants).
+	ArchivedAt *time.Time `gorm:"index" json:"archived_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
 
 	Variants []ProductVariant `gorm:"constraint:OnDelete:CASCADE" json:"variants,omitempty"`
 	Images   []ProductImage   `gorm:"constraint:OnDelete:CASCADE" json:"images,omitempty"`
@@ -67,6 +90,9 @@ type ProductVariant struct {
 	Quantity  int  `gorm:"not null" json:"quantity"` // кол-во цветов в букете
 	Price     int  `gorm:"not null" json:"price"`    // цена в рублях
 	OldPrice  int  `gorm:"not null;default:0" json:"old_price"` // цена до скидки (0 = без скидки)
+	// ArchivedAt — вариант заменён при правке цен, но остаётся в БД:
+	// на него ссылаются order_items прошлых заказов (FK fk_order_items_variant).
+	ArchivedAt *time.Time `gorm:"index" json:"archived_at,omitempty"`
 }
 
 type ProductImage struct {

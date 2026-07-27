@@ -364,9 +364,7 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 			b.editOrderCard(chatID, w.msgID, updated)
 		}
 		b.send(chatID, fmt.Sprintf("❌ Заказ #%d отменён: %s", updated.ID, text))
-		if tmpl, ok := model.ClientStatusMessages[model.StatusCancelled]; ok {
-			b.notifyCustomerStatus(updated.ID, model.StatusCancelled, tmpl)
-		}
+		b.notifyCustomerStatus(updated.ID, model.StatusCancelled)
 	case "order_photo":
 		b.send(chatID, "Жду фото букета. Или /cancel для отмены.")
 	case "edit_text":
@@ -705,7 +703,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			tgbotapi.NewInlineKeyboardButtonData("🗑 Да, удалить", fmt.Sprintf("delok:%d", id)),
 			tgbotapi.NewInlineKeyboardButtonData("❌ Отмена", "noop"),
 		))
-		b.sendKb(chatID, fmt.Sprintf("Удалить товар «%s» безвозвратно?", p.Name), kb)
+		b.sendKb(chatID, fmt.Sprintf("Убрать товар «%s» из каталога?\n\nОн исчезнет с витрины, но останется в истории прошлых заказов.", p.Name), kb)
 
 	case "delok":
 		id := argAt(1)
@@ -713,7 +711,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			b.send(chatID, "Ошибка: "+err.Error())
 			return
 		}
-		b.sendTemp(chatID, "🗑 Товар удалён.", 5*time.Second)
+		b.sendTemp(chatID, "🗑 Товар убран из каталога.", 5*time.Second)
 
 	case "pg": // pg:<status>:<page> — страница заказов, редактируем сообщение на месте
 		if len(parts) < 3 {
@@ -753,9 +751,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			}
 			// Карточку редактируем на месте — чат остаётся чистым.
 			b.editOrderCard(chatID, cb.Message.MessageID, updated)
-			if msg, ok := model.ClientStatusMessages[next]; ok && msg != "" {
-				b.notifyCustomerStatus(id, next, msg)
-			}
+			b.notifyCustomerStatus(id, next)
 		case "cancel":
 			b.wizards[chatID] = &wizard{mode: "cancel_reason", orderID: id, msgID: cb.Message.MessageID}
 			reply := tgbotapi.NewMessage(chatID, fmt.Sprintf("Причина отмены заказа #%d (коротко):", id))
@@ -1204,7 +1200,12 @@ func (b *Bot) sendBouquetPhoto(chatID int64, orderID uint, fileID string) {
 }
 
 // notifyCustomerStatus — отправляет клиенту уведомление о смене статуса заказа.
-func (b *Bot) notifyCustomerStatus(orderID uint, status, msgTemplate string) {
+// Текст собирает model.ClientStatusText: подстановка номера только там, где она есть в шаблоне.
+func (b *Bot) notifyCustomerStatus(orderID uint, status string) {
+	text, ok := model.ClientStatusText(status, orderID)
+	if !ok {
+		return
+	}
 	o, err := b.repo.GetOrder(orderID)
 	if err != nil {
 		log.Printf("get order for status notification: %v", err)
@@ -1213,7 +1214,7 @@ func (b *Bot) notifyCustomerStatus(orderID uint, status, msgTemplate string) {
 	if o.User.TelegramID == 0 {
 		return // Нет способа отправить сообщение, если клиент не сохранён.
 	}
-	msg := fmt.Sprintf(msgTemplate, o.ID)
-	b.send(o.User.TelegramID, msg)
+	// Клиентский чат не админский — remember() его не логирует, /clean не тронет.
+	b.send(o.User.TelegramID, text)
 }
 
