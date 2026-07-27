@@ -176,6 +176,15 @@ func AllowedTransition(from, to string) bool {
 	return NextStatus(from) == to
 }
 
+// Upload — фото товара, сохранённое в БД (для хостинга без постоянного диска).
+type Upload struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Ext       string    `gorm:"not null" json:"ext"`       // .jpg / .webp
+	MimeType  string    `gorm:"not null" json:"mime_type"` // image/jpeg
+	Data      []byte    `gorm:"type:bytea;not null" json:"-"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // FreshToday — «Сегодня на базе»: что флорист закупил утром.
 // Актуальна запись за сегодняшнюю дату; /fresh в боте перезаписывает её.
 type FreshToday struct {

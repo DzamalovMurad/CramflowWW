@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"log"
@@ -13,14 +14,16 @@ import (
 
 	"github.com/dzamalovmurad/cramflowww/internal/repository"
 	"github.com/dzamalovmurad/cramflowww/internal/service"
+	"github.com/dzamalovmurad/cramflowww/internal/storage"
 )
 
 type API struct {
 	Repo      *repository.Repository
 	Service   *service.Service
 	BotToken  string
-	UploadDir string // локальные фото, отдаются по /uploads/
-	WebDist   string // собранный фронтенд
+	UploadDir string            // локальные фото, отдаются по /uploads/
+	Uploads   *storage.Postgres // если задан — фото берутся из БД, а не с диска
+	WebDist   string            // собранный фронтенд
 }
 
 func (a *API) Routes() http.Handler {
@@ -37,8 +40,12 @@ func (a *API) Routes() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	mux.Handle("GET /uploads/", http.StripPrefix("/uploads/",
-		http.FileServer(http.Dir(a.UploadDir))))
+	if a.Uploads != nil {
+		mux.HandleFunc("GET /uploads/{file}", a.serveUpload)
+	} else {
+		mux.Handle("GET /uploads/", http.StripPrefix("/uploads/",
+			http.FileServer(http.Dir(a.UploadDir))))
+	}
 
 	// SPA: отдаём статику, для остальных путей — index.html.
 	mux.HandleFunc("/", a.serveSPA)
@@ -178,6 +185,19 @@ func (a *API) getFreshToday(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": fresh.Items})
+}
+
+// serveUpload — отдаёт фото товара из БД (хостинг без постоянного диска).
+func (a *API) serveUpload(w http.ResponseWriter, r *http.Request) {
+	up, err := a.Uploads.Get(r.PathValue("file"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", up.MimeType)
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable") // id неизменяем
+	w.Header().Set("Content-Length", strconv.Itoa(len(up.Data)))
+	http.ServeContent(w, r, r.PathValue("file"), up.CreatedAt, bytes.NewReader(up.Data))
 }
 
 func (a *API) serveSPA(w http.ResponseWriter, r *http.Request) {

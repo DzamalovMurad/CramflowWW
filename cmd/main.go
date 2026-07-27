@@ -45,10 +45,24 @@ func main() {
 		log.Fatalf("миграции: %v", err)
 	}
 
+	// Куда складывать фото товаров:
+	//   UPLOAD_STORE=db   — в Postgres (хостинг без постоянного диска),
+	//   иначе             — в папку UPLOAD_DIR (Railway Volume и локальная разработка).
 	uploadDir := envOr("UPLOAD_DIR", "./uploads")
-	store, err := storage.NewLocal(uploadDir, "/uploads")
-	if err != nil {
-		log.Fatalf("storage: %v", err)
+	var store storage.Storage
+	var dbUploads *storage.Postgres
+	if envOr("UPLOAD_STORE", "local") == "db" {
+		dbUploads, err = storage.NewPostgres(db, "/uploads")
+		if err != nil {
+			log.Fatalf("storage: %v", err)
+		}
+		store = dbUploads
+		log.Println("фото товаров хранятся в БД (UPLOAD_STORE=db)")
+	} else {
+		store, err = storage.NewLocal(uploadDir, "/uploads")
+		if err != nil {
+			log.Fatalf("storage: %v", err)
+		}
 	}
 
 	repo := repository.New(db)
@@ -83,6 +97,7 @@ func main() {
 		Service:   svc,
 		BotToken:  botToken,
 		UploadDir: uploadDir,
+		Uploads:   dbUploads, // nil при локальном хранении — фото отдаёт FileServer
 		WebDist:   envOr("WEB_DIST", "./web/dist"),
 	}
 
