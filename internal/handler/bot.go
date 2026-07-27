@@ -1217,4 +1217,3 @@ func (b *Bot) notifyCustomerStatus(orderID uint, status string) {
 	// Клиентский чат не админский — remember() его не логирует, /clean не тронет.
 	b.send(o.User.TelegramID, text)
 }
-

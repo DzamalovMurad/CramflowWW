@@ -24,6 +24,10 @@ type API struct {
 	UploadDir string            // локальные фото, отдаются по /uploads/
 	Uploads   *storage.Postgres // если задан — фото берутся из БД, а не с диска
 	WebDist   string            // собранный фронтенд
+
+	// Webhook бота: заполняются, только если BOT_MODE=webhook.
+	WebhookPath    string
+	WebhookHandler http.HandlerFunc
 }
 
 func (a *API) Routes() http.Handler {
@@ -45,6 +49,11 @@ func (a *API) Routes() http.Handler {
 	} else {
 		mux.Handle("GET /uploads/", http.StripPrefix("/uploads/",
 			http.FileServer(http.Dir(a.UploadDir))))
+	}
+
+	// Приём апдейтов от Telegram, если бот работает в режиме webhook.
+	if a.WebhookPath != "" && a.WebhookHandler != nil {
+		mux.HandleFunc("POST "+a.WebhookPath, a.WebhookHandler)
 	}
 
 	// SPA: отдаём статику, для остальных путей — index.html.

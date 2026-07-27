@@ -1,0 +1,41 @@
+# Render Blueprint: бесплатный веб-сервис из Dockerfile.
+# База — внешняя (Neon), потому что бесплатный Postgres самого Render
+# удаляется через 30 дней после создания.
+#
+# Секреты (sync: false) задаются в дашборде Render при первом деплое:
+#   DATABASE_URL     — строка подключения Neon (?sslmode=require)
+#   BOT_TOKEN        — токен бота от @BotFather
+#   ADMIN_IDS        — telegram_id админов через запятую
+#   WEBHOOK_SECRET   — случайная строка (путь приёма апдейтов Telegram)
+#   TELEGRAM_APP_URL — публичный адрес сервиса (кнопка «Открыть магазин»)
+services:
+  - type: web
+    name: flowix
+    runtime: docker
+    plan: free
+    region: frankfurt # ближе к России, чем Орегон
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: WEBHOOK_SECRET
+        sync: false
+      - key: TELEGRAM_APP_URL
+        sync: false
+      # Фото товаров — в БД: у бесплатного тарифа нет постоянного диска.
+      - key: UPLOAD_STORE
+        value: db
+      # Бот на webhook: сервис засыпает без трафика, апдейт от Telegram его будит.
+      - key: BOT_MODE
+        value: webhook
+      # PUBLIC_URL подставляется автоматически из хоста сервиса
+      # (схему https:// код добавляет сам).
+      - key: PUBLIC_URL
+        fromService:
+          type: web
+          name: flowix
+          property: host

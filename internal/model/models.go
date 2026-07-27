@@ -87,8 +87,8 @@ type Product struct {
 type ProductVariant struct {
 	ID        uint `gorm:"primaryKey" json:"id"`
 	ProductID uint `gorm:"not null;index" json:"product_id"`
-	Quantity  int  `gorm:"not null" json:"quantity"` // кол-во цветов в букете
-	Price     int  `gorm:"not null" json:"price"`    // цена в рублях
+	Quantity  int  `gorm:"not null" json:"quantity"`            // кол-во цветов в букете
+	Price     int  `gorm:"not null" json:"price"`               // цена в рублях
 	OldPrice  int  `gorm:"not null;default:0" json:"old_price"` // цена до скидки (0 = без скидки)
 	// ArchivedAt — вариант заменён при правке цен, но остаётся в БД:
 	// на него ссылаются order_items прошлых заказов (FK fk_order_items_variant).
@@ -112,18 +112,18 @@ type User struct {
 }
 
 type Order struct {
-	ID              uint   `gorm:"primaryKey" json:"id"`
-	UserID          uint   `gorm:"not null;index;index:idx_orders_user_status" json:"user_id"`
-	TotalPrice      int    `gorm:"not null" json:"total_price"`
-	DeliveryAddress string `gorm:"not null" json:"delivery_address"`
-	DeliveryDate    string `gorm:"not null;index:idx_orders_status_ddate" json:"delivery_date"`
-	DeliveryTime    string `gorm:"not null" json:"delivery_time"`
-	PromoCodeID     *uint  `json:"promo_code_id,omitempty"`
-	Comment         string `json:"comment"`
-	CardText        string `json:"card_text"`     // текст открытки (до 300 символов)
-	IsAnonymous     bool   `json:"is_anonymous"`  // анонимная доставка
-	CancelReason    string `json:"cancel_reason"` // причина отмены (обязательна при отмене админом)
-	Status          string `gorm:"not null;default:new;index;index:idx_orders_status_ddate,priority:1;index:idx_orders_user_status,priority:2" json:"status"`
+	ID              uint      `gorm:"primaryKey" json:"id"`
+	UserID          uint      `gorm:"not null;index;index:idx_orders_user_status" json:"user_id"`
+	TotalPrice      int       `gorm:"not null" json:"total_price"`
+	DeliveryAddress string    `gorm:"not null" json:"delivery_address"`
+	DeliveryDate    string    `gorm:"not null;index:idx_orders_status_ddate" json:"delivery_date"`
+	DeliveryTime    string    `gorm:"not null" json:"delivery_time"`
+	PromoCodeID     *uint     `json:"promo_code_id,omitempty"`
+	Comment         string    `json:"comment"`
+	CardText        string    `json:"card_text"`     // текст открытки (до 300 символов)
+	IsAnonymous     bool      `json:"is_anonymous"`  // анонимная доставка
+	CancelReason    string    `json:"cancel_reason"` // причина отмены (обязательна при отмене админом)
+	Status          string    `gorm:"not null;default:new;index;index:idx_orders_status_ddate,priority:1;index:idx_orders_user_status,priority:2" json:"status"`
 	CreatedAt       time.Time `json:"created_at"`
 
 	User      User        `json:"user"`
@@ -188,9 +188,9 @@ type Upload struct {
 // FreshToday — «Сегодня на базе»: что флорист закупил утром.
 // Актуальна запись за сегодняшнюю дату; /fresh в боте перезаписывает её.
 type FreshToday struct {
-	ID        uint   `gorm:"primaryKey" json:"id"`
-	Date      string `gorm:"uniqueIndex;not null" json:"date"` // YYYY-MM-DD
-	Items     string `gorm:"not null" json:"items"`            // «пионы, ранункулюсы, эустома»
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Date      string    `gorm:"uniqueIndex;not null" json:"date"` // YYYY-MM-DD
+	Items     string    `gorm:"not null" json:"items"`            // «пионы, ранункулюсы, эустома»
 	CreatedAt time.Time `json:"created_at"`
 }
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -34,6 +35,16 @@ func main() {
 	})
 	if err != nil {
 		log.Fatalf("подключение к БД: %v", err)
+	}
+
+	// Пул соединений: держим мало и закрываем простаивающие.
+	// На serverless-Postgres (Neon) это позволяет базе засыпать в простое —
+	// иначе бесплатные CU-часы сгорают на пустых соединениях.
+	if sqlDB, err := db.DB(); err == nil {
+		sqlDB.SetMaxOpenConns(8)
+		sqlDB.SetMaxIdleConns(2)
+		sqlDB.SetConnMaxIdleTime(time.Minute)
+		sqlDB.SetConnMaxLifetime(30 * time.Minute)
 	}
 
 	// Миграции: GORM AutoMigrate покрывает всю схему (SQL-эквивалент — в /migrations).
@@ -76,29 +87,47 @@ func main() {
 		return
 	}
 
+	api := &handler.API{
+		Repo:      repo,
+		Service:   svc,
+		BotToken:  os.Getenv("BOT_TOKEN"),
+		UploadDir: uploadDir,
+		Uploads:   dbUploads, // nil при локальном хранении — фото отдаёт FileServer
+		WebDist:   envOr("WEB_DIST", "./web/dist"),
+	}
+
 	// Бот опционален: без BOT_TOKEN сервис работает как чистый API (удобно для разработки).
-	botToken := os.Getenv("BOT_TOKEN")
-	if botToken != "" {
+	if botToken := os.Getenv("BOT_TOKEN"); botToken != "" {
 		adminIDs := parseAdminIDs()
 		if len(adminIDs) == 0 {
 			log.Println("внимание: ADMIN_IDS/ADMIN_CHAT_ID не заданы — админ-команды будут недоступны")
 		}
-		bot, err := handler.NewBot(botToken, adminIDs, os.Getenv("TELEGRAM_APP_URL"), repo, svc, store)
+		appURL := os.Getenv("TELEGRAM_APP_URL")
+		bot, err := handler.NewBot(botToken, adminIDs, appURL, repo, svc, store)
 		if err != nil {
 			log.Fatalf("бот: %v", err)
 		}
-		go bot.Run()
+
+		// BOT_MODE=webhook — для хостингов, засыпающих без трафика: входящий
+		// запрос от Telegram сам будит сервис. По умолчанию — long polling.
+		if envOr("BOT_MODE", "polling") == "webhook" {
+			secret := os.Getenv("WEBHOOK_SECRET")
+			if secret == "" {
+				log.Fatal("BOT_MODE=webhook требует WEBHOOK_SECRET")
+			}
+			api.WebhookPath = bot.WebhookPath(secret)
+			api.WebhookHandler = bot.WebhookHandler(secret)
+			if err := bot.SetupWebhook(envOr("PUBLIC_URL", appURL), secret); err != nil {
+				log.Fatalf("webhook: %v", err)
+			}
+		} else {
+			if err := bot.RemoveWebhook(); err != nil {
+				log.Printf("снятие webhook: %v", err)
+			}
+			go bot.Run()
+		}
 	} else {
 		log.Println("BOT_TOKEN не задан — запуск без бота")
-	}
-
-	api := &handler.API{
-		Repo:      repo,
-		Service:   svc,
-		BotToken:  botToken,
-		UploadDir: uploadDir,
-		Uploads:   dbUploads, // nil при локальном хранении — фото отдаёт FileServer
-		WebDist:   envOr("WEB_DIST", "./web/dist"),
 	}
 
 	port := envOr("PORT", "8080")
