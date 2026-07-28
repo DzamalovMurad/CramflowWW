@@ -210,7 +210,9 @@ func (a *API) serveUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) serveSPA(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, "/api/") {
+	// Служебные префиксы не должны проваливаться в SPA: иначе перебор
+	// секретного пути webhook отвечает 200 и index.html вместо 404.
+	if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/telegram/") {
 		writeError(w, http.StatusNotFound, "не найдено")
 		return
 	}

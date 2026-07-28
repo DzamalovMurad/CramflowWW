@@ -3,9 +3,10 @@
 # ждал бы ~минуту на холодном старте. 750 бесплатных часов в месяц покрывают
 # круглосуточную работу (~730 ч).
 #
-# Нужен секрет репозитория PUBLIC_URL, например https://flowix.onrender.com
-# Временное решение на период жизни на Render — после возврата на Railway
-# workflow можно отключить (Actions → Keepalive → Disable workflow).
+# Адрес берётся из секрета репозитория PUBLIC_URL, а если он не задан —
+# из значения по умолчанию ниже. Временное решение на период жизни на Render:
+# после возврата на Railway workflow можно отключить
+# (Actions → Keepalive → ⋯ → Disable workflow).
 name: Keepalive
 
 on:
@@ -19,11 +20,8 @@ jobs:
     steps:
       - name: Ping health endpoint
         env:
-          PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
+          PUBLIC_URL: ${{ secrets.PUBLIC_URL || 'https://flowix-e2tx.onrender.com' }}
         run: |
-          if [ -z "$PUBLIC_URL" ]; then
-            echo "Секрет PUBLIC_URL не задан — пропускаю"; exit 0
-          fi
           # Health-эндпоинт не трогает БД: Neon продолжает спать и не жжёт CU-часы.
           code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 90 "$PUBLIC_URL/api/health")
           echo "health=$code"
