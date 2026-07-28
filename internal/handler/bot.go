@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -101,7 +103,40 @@ func NewBot(token string, adminIDs []int64, appURL string, repo *repository.Repo
 		msgLog:   map[int64][]int{},
 	}
 	svc.NotifyNewOrder = b.NotifyNewOrder
+	b.syncMenuButton()
 	return b, nil
+}
+
+// syncMenuButton делает кнопку меню бота постоянной ссылкой на Mini App.
+// Без неё магазин открывается только из inline-кнопки конкретного сообщения,
+// а в старых сообщениях адрес вшит навсегда — после переезда они ведут в никуда.
+// Метод появился в Bot API 6.0, в tgbotapi v5.5.1 его нет — зовём напрямую.
+func (b *Bot) syncMenuButton() {
+	if b.appURL == "" {
+		return
+	}
+	body, err := json.Marshal(map[string]any{
+		"menu_button": map[string]any{
+			"type":    "web_app",
+			"text":    "🌸 Магазин",
+			"web_app": map[string]string{"url": b.appURL},
+		},
+	})
+	if err != nil {
+		return
+	}
+	endpoint := fmt.Sprintf("https://api.telegram.org/bot%s/setChatMenuButton", b.api.Token)
+	resp, err := http.Post(endpoint, "application/json", bytes.NewReader(body))
+	if err != nil {
+		log.Printf("menu button: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("menu button: HTTP %d", resp.StatusCode)
+		return
+	}
+	log.Printf("кнопка меню бота ведёт на %s", b.appURL)
 }
 
 func (b *Bot) Run() {
