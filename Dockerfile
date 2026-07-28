@@ -7,7 +7,7 @@ COPY web/ ./
 RUN npm run build
 
 # --- Сборка Go-бинарника ---
-FROM golang:1.24-alpine AS api
+FROM golang:1.25-alpine AS api
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
