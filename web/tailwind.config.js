@@ -16,6 +16,7 @@ export default {
         line: 'var(--c-border)',
         accent: 'var(--c-accent)',
         'accent-2': 'var(--c-accent-2)',
+        'accent-ink': 'var(--c-accent-on-ink)', // акцент поверх bg-ink
         'on-accent': 'var(--c-on-accent)',
       },
       borderRadius: {

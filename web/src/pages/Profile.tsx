@@ -55,7 +55,7 @@ export default function Profile() {
               <div className="rounded-card bg-ink p-5 text-page shadow-card">
                 <p className="text-[11px] font-bold uppercase tracking-wider opacity-70">{c.promo}</p>
                 <div className="mt-1 flex items-baseline justify-between">
-                  <span className="text-[22px] font-extrabold text-accent">{me!.promo_code}</span>
+                  <span className="text-[22px] font-extrabold text-accent-ink">{me!.promo_code}</span>
                   <span className="text-sm opacity-80">
                     {c.discount} {me!.discount_percent}%
                   </span>

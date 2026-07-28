@@ -101,7 +101,7 @@ export default function Home() {
       <section className="px-4 pt-3">
         <div ref={bannerRef} className="banner-scroll" onScroll={onBannerScroll}>
           <div className="banner-card relative bg-ink p-5">
-            <p className="label mb-2 !text-accent-2">{c.badge}</p>
+            <p className="label mb-2 !text-accent-ink">{c.badge}</p>
             <h1 className="display text-[26px] text-page">{c.title}</h1>
             <p className="mt-1.5 text-[12px] lowercase text-page/70">{c.subtitle}</p>
             <span className="absolute right-4 top-4 h-2.5 w-2.5 rounded-full bg-accent" />
