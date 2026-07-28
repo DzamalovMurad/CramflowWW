@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -353,20 +354,34 @@ func parseVariants(s string) []model.ProductVariant {
 func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 	chatID := msg.Chat.ID
 
-	// Фото готового букета: пересылаем клиенту по file_id, без скачивания.
-	if len(msg.Photo) > 0 && w.mode == "order_photo" {
-		delete(b.wizards, chatID)
-		b.sendBouquetPhoto(chatID, w.orderID, msg.Photo[len(msg.Photo)-1].FileID)
+	// Сжатое фото не принимаем: Telegram ужимает его до ~1280px, на витрине это мыло.
+	if len(msg.Photo) > 0 {
+		b.send(chatID, sendAsFileHint)
 		return
 	}
 
-	// Приём фото (шаг photos в /add или режим замены фото в /edit).
-	if len(msg.Photo) > 0 {
+	// Фото готового букета: пересылаем клиенту по file_id, без скачивания.
+	if msg.Document != nil && w.mode == "order_photo" {
+		if !isImageDocument(msg.Document) {
+			b.send(chatID, "Это не изображение. "+sendAsFileHint)
+			return
+		}
+		delete(b.wizards, chatID)
+		b.sendBouquetPhoto(chatID, w.orderID, msg.Document.FileID)
+		return
+	}
+
+	// Приём фото товара файлом (шаг photos в /add или замена фото в /edit).
+	if msg.Document != nil {
 		if (w.mode == "add" && w.step == "photos") || w.mode == "edit_photos" {
-			url, err := b.savePhoto(msg.Photo)
+			if !isImageDocument(msg.Document) {
+				b.send(chatID, "Это не изображение. "+sendAsFileHint)
+				return
+			}
+			url, err := b.saveDocument(msg.Document)
 			if err != nil {
 				log.Printf("save photo: %v", err)
-				b.send(chatID, "Не удалось сохранить фото, попробуйте ещё раз.")
+				b.send(chatID, "Не удалось сохранить фото: "+err.Error())
 				return
 			}
 			w.draft.imageURLs = append(w.draft.imageURLs, url)
@@ -375,7 +390,7 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 				b.wizardDone(chatID)
 				return
 			}
-			b.send(chatID, fmt.Sprintf("📷 Фото %d/5 сохранено. Отправьте ещё или /done, чтобы продолжить.", n))
+			b.send(chatID, fmt.Sprintf("🖼 Фото %d/5 сохранено в оригинале. Отправьте ещё или /done.", n))
 			return
 		}
 		b.send(chatID, "Фото сейчас не ожидается.")
@@ -407,7 +422,7 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 		b.send(chatID, fmt.Sprintf("❌ Заказ #%d отменён: %s", updated.ID, text))
 		b.notifyCustomerStatus(updated.ID, model.StatusCancelled)
 	case "order_photo":
-		b.send(chatID, "Жду фото букета. Или /cancel для отмены.")
+		b.send(chatID, "Жду фото букета файлом. Или /cancel для отмены.")
 	case "edit_text":
 		p, err := b.repo.GetProduct(w.productID)
 		if err != nil {
@@ -474,7 +489,7 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 			b.send(chatID, fmt.Sprintf("✅ Остаток %d — бейдж появится, когда ≤ 5.", n))
 		}
 	case "edit_photos":
-		b.send(chatID, "Отправьте фото (до 5 шт) или /done для завершения.")
+		b.send(chatID, "Отправьте фото файлом (до 5 шт) или /done для завершения.")
 	}
 }
 
@@ -483,9 +498,9 @@ func (b *Bot) wizardAddText(chatID int64, w *wizard, text string) {
 	case "name":
 		w.draft.name = text
 		w.step = "photos"
-		b.send(chatID, "Шаг 2/5 — отправьте 4–5 фото букета (по одному). Когда закончите — /done.")
+		b.send(chatID, "Шаг 2/5 — отправьте 4–5 фото букета по одному.\n\n"+sendAsFileHint+"\n\nКогда закончите — /done.")
 	case "photos":
-		b.send(chatID, "Жду фото. Когда закончите — /done.")
+		b.send(chatID, "Жду фото файлом. Когда закончите — /done.")
 	case "desc":
 		if text != "-" {
 			w.draft.description = text
@@ -536,9 +551,34 @@ func (b *Bot) wizardDone(chatID int64) {
 	}
 }
 
-func (b *Bot) savePhoto(photos []tgbotapi.PhotoSize) (string, error) {
-	best := photos[len(photos)-1] // последний размер — самый большой
-	fileURL, err := b.api.GetFileDirectURL(best.FileID)
+// sendAsFileHint — единая подсказка, как прислать фото без потери качества.
+const sendAsFileHint = "Пришлите фото файлом, без сжатия:\n" +
+	"📎 → Файл (не «Фото») → выберите снимок.\n" +
+	"На iPhone: 📎 → Файл; если выбираете из галереи — сначала «Сохранить в Файлы».\n" +
+	"Так на витрину попадёт оригинал, а не сжатая Telegram копия."
+
+// maxDocumentBytes — предел скачивания файла ботом в Telegram Bot API.
+const maxDocumentBytes = 20 << 20
+
+func isImageDocument(doc *tgbotapi.Document) bool {
+	if strings.HasPrefix(doc.MimeType, "image/") {
+		return true
+	}
+	// Некоторые клиенты не проставляют MIME — смотрим на расширение.
+	switch strings.ToLower(filepath.Ext(doc.FileName)) {
+	case ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif":
+		return true
+	}
+	return false
+}
+
+// saveDocument скачивает присланный файлом снимок и кладёт в хранилище как есть —
+// без сжатия, в оригинальном разрешении.
+func (b *Bot) saveDocument(doc *tgbotapi.Document) (string, error) {
+	if doc.FileSize > maxDocumentBytes {
+		return "", fmt.Errorf("файл больше 20 МБ — Telegram не отдаёт такие ботам")
+	}
+	fileURL, err := b.api.GetFileDirectURL(doc.FileID)
 	if err != nil {
 		return "", err
 	}
@@ -547,7 +587,14 @@ func (b *Bot) savePhoto(photos []tgbotapi.PhotoSize) (string, error) {
 		return "", err
 	}
 	defer resp.Body.Close()
-	return b.store.Save("photo.jpg", resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Telegram вернул %d при скачивании", resp.StatusCode)
+	}
+	name := doc.FileName
+	if name == "" {
+		name = "photo.jpg"
+	}
+	return b.store.Save(name, resp.Body)
 }
 
 func categoryKeyboard(prefix string) tgbotapi.InlineKeyboardMarkup {
@@ -673,7 +720,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			b.send(chatID, "Введите новые варианты одной строкой.\nПример: 9 шт — 2990₽; 15 шт — 4490₽")
 		case "photo":
 			b.wizards[chatID] = &wizard{mode: "edit_photos", productID: id}
-			b.send(chatID, "Отправьте новые фото (до 5 шт) — они заменят старые. Когда закончите — /done.")
+			b.send(chatID, "Новые фото заменят старые (до 5 шт).\n\n"+sendAsFileHint+"\n\nКогда закончите — /done.")
 		case "cat":
 			b.sendKb(chatID, "Выберите новую категорию:", categoryKeyboard(fmt.Sprintf("editcat_%d", id)))
 		case "hit":
@@ -832,7 +879,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 		b.wizards[chatID] = &wizard{mode: "order_photo", orderID: id}
-		b.send(chatID, fmt.Sprintf("📷 Пришлите фото букета для заказа #%d — я отправлю его клиенту. /cancel — отмена.", id))
+		b.send(chatID, fmt.Sprintf("📷 Фото букета для заказа #%d — отправлю его клиенту.\n\n%s\n\n/cancel — отмена.", id, sendAsFileHint))
 
 	case "noop":
 		// отмена подтверждения — ничего не делаем
@@ -1220,9 +1267,11 @@ func (b *Bot) sendBouquetPhoto(chatID int64, orderID uint, fileID string) {
 		b.send(chatID, "У клиента нет Telegram ID — фото отправить некому.")
 		return
 	}
-	photo := tgbotapi.NewPhoto(o.User.TelegramID, tgbotapi.FileID(fileID))
-	photo.Caption = fmt.Sprintf("🌸 Ваш букет к заказу #%d готов!", o.ID)
-	if _, err := b.api.Send(photo); err != nil {
+	// Шлём документом, а не фото: sendPhoto пересжал бы снимок и клиент увидел
+	// мыло вместо своего букета. Telegram показывает картинку-документ с превью.
+	doc := tgbotapi.NewDocument(o.User.TelegramID, tgbotapi.FileID(fileID))
+	doc.Caption = fmt.Sprintf("🌸 Ваш букет к заказу #%d готов!", o.ID)
+	if _, err := b.api.Send(doc); err != nil {
 		log.Printf("send photo to customer: %v", err)
 		b.send(chatID, "Не удалось отправить фото клиенту (возможно, он не запускал бота).")
 		return

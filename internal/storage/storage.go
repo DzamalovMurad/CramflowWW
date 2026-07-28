@@ -31,6 +31,14 @@ func NewLocal(dir, baseURL string) (*Local, error) {
 
 func (l *Local) Save(name string, r io.Reader) (string, error) {
 	ext := filepath.Ext(name)
+	// Готовим снимок к витрине так же, как в БД-хранилище (см. image.go).
+	data, newExt, err := PrepareImage(r)
+	if err != nil {
+		return "", err
+	}
+	if newExt != "" {
+		ext = newExt
+	}
 	if ext == "" {
 		ext = ".jpg"
 	}
@@ -40,7 +48,7 @@ func (l *Local) Save(name string, r io.Reader) (string, error) {
 		return "", err
 	}
 	defer dst.Close()
-	if _, err := io.Copy(dst, r); err != nil {
+	if _, err := dst.Write(data); err != nil {
 		return "", err
 	}
 	return l.BaseURL + "/" + fname, nil

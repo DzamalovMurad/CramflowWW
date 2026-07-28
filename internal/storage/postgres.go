@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,7 +28,9 @@ func NewPostgres(db *gorm.DB, baseURL string) (*Postgres, error) {
 	return &Postgres{DB: db, BaseURL: strings.TrimSuffix(baseURL, "/")}, nil
 }
 
-const maxUploadBytes = 8 << 20 // 8 МБ на фото — с запасом для снимка из Telegram
+// Фото принимаются файлом в оригинале, поэтому лимит равен пределу,
+// до которого Telegram вообще отдаёт файлы ботам.
+const maxUploadBytes = 20 << 20
 
 func (p *Postgres) Save(name string, r io.Reader) (string, error) {
 	data, err := io.ReadAll(io.LimitReader(r, maxUploadBytes+1))
@@ -39,6 +42,13 @@ func (p *Postgres) Save(name string, r io.Reader) (string, error) {
 	}
 
 	ext := filepath.Ext(name)
+	// Готовим снимок к витрине: ресайз под экран + JPEG (см. image.go).
+	if prepared, newExt, err := PrepareImage(bytes.NewReader(data)); err == nil {
+		data = prepared
+		if newExt != "" {
+			ext = newExt
+		}
+	}
 	if ext == "" {
 		ext = ".jpg"
 	}

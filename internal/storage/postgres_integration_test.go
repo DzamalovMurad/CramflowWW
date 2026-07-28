@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"image/jpeg"
 	"os"
 	"strings"
 	"testing"
@@ -35,11 +36,12 @@ func TestIntegrationPostgresStorageRoundTrip(t *testing.T) {
 		t.Fatalf("NewPostgres: %v", err)
 	}
 
+	// Снимок приходит файлом и перекодируется под витрину в JPEG (см. image.go).
 	url, err := st.Save("photo.png", bytes.NewReader(onePixelPNG))
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	if !strings.HasPrefix(url, "/uploads/") || !strings.HasSuffix(url, ".png") {
+	if !strings.HasPrefix(url, "/uploads/") || !strings.HasSuffix(url, ".jpg") {
 		t.Fatalf("неожиданный URL: %q", url)
 	}
 
@@ -47,15 +49,19 @@ func TestIntegrationPostgresStorageRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if !bytes.Equal(up.Data, onePixelPNG) {
-		t.Error("содержимое файла не совпадает с исходным")
+	if up.MimeType != "image/jpeg" {
+		t.Errorf("MIME-тип = %q, ожидали image/jpeg", up.MimeType)
 	}
-	if up.MimeType != "image/png" {
-		t.Errorf("MIME-тип = %q, ожидали image/png", up.MimeType)
+	cfg, err := jpeg.DecodeConfig(bytes.NewReader(up.Data))
+	if err != nil {
+		t.Fatalf("сохранённые данные не читаются как JPEG: %v", err)
+	}
+	if cfg.Width != 1 || cfg.Height != 1 {
+		t.Errorf("размер изменился: %d×%d, ожидали 1×1", cfg.Width, cfg.Height)
 	}
 
 	// Несуществующий файл — ошибка, а не пустой результат.
-	if _, err := st.Get("999999.png"); err == nil {
+	if _, err := st.Get("999999.jpg"); err == nil {
 		t.Error("ожидали ошибку для несуществующего файла")
 	}
 }
