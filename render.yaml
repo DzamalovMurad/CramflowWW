@@ -2,12 +2,11 @@
 # База — внешняя (Neon), потому что бесплатный Postgres самого Render
 # удаляется через 30 дней после создания.
 #
-# Секреты (sync: false) задаются в дашборде Render при первом деплое:
-#   DATABASE_URL     — строка подключения Neon (?sslmode=require)
-#   BOT_TOKEN        — токен бота от @BotFather
-#   ADMIN_IDS        — telegram_id админов через запятую
-#   WEBHOOK_SECRET   — случайная строка (путь приёма апдейтов Telegram)
-#   TELEGRAM_APP_URL — публичный адрес сервиса (кнопка «Открыть магазин»)
+# При первом деплое Render спросит только три значения (sync: false):
+#   DATABASE_URL — строка подключения Neon (?sslmode=require)
+#   BOT_TOKEN    — токен бота от @BotFather
+#   ADMIN_IDS    — telegram_id админов через запятую
+# Остальное подставляется автоматически.
 services:
   - type: web
     name: flowix
@@ -23,18 +22,21 @@ services:
       - key: ADMIN_IDS
         sync: false
       - key: WEBHOOK_SECRET
-        sync: false
-      - key: TELEGRAM_APP_URL
-        sync: false
+        generateValue: true # Render сгенерирует случайную строку сам
       # Фото товаров — в БД: у бесплатного тарифа нет постоянного диска.
       - key: UPLOAD_STORE
         value: db
       # Бот на webhook: сервис засыпает без трафика, апдейт от Telegram его будит.
       - key: BOT_MODE
         value: webhook
-      # PUBLIC_URL подставляется автоматически из хоста сервиса
-      # (схему https:// код добавляет сам).
+      # Адрес сервиса подставляется автоматически (схему https:// код добавит сам):
+      # PUBLIC_URL — для webhook, TELEGRAM_APP_URL — для кнопки «Открыть магазин».
       - key: PUBLIC_URL
+        fromService:
+          type: web
+          name: flowix
+          property: host
+      - key: TELEGRAM_APP_URL
         fromService:
           type: web
           name: flowix

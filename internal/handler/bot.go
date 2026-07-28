@@ -84,6 +84,12 @@ func NewBot(token string, adminIDs []int64, appURL string, repo *repository.Repo
 	if err != nil {
 		return nil, err
 	}
+	// Хостинг может отдавать адрес без схемы (Render: flowix.onrender.com),
+	// а web_app-кнопке нужен полный https-URL.
+	appURL = strings.TrimSuffix(strings.TrimSpace(appURL), "/")
+	if appURL != "" && !strings.Contains(appURL, "://") {
+		appURL = "https://" + appURL
+	}
 	b := &Bot{
 		api:      api,
 		repo:     repo,
