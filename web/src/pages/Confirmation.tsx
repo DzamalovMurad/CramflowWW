@@ -47,8 +47,8 @@ export default function Confirmation() {
           {order.promo_code && (
             <p className="mt-3.5 flex items-center gap-2 text-sm lowercase text-accent-2">
               <span className="h-1.5 w-1.5 rounded-full bg-accent-2" />
-              {c.promoApplied}: <span className="normal-case">{order.promo_code.code}</span> (−
-              {order.promo_code.discount_percent}%)
+              {c.promoApplied}: <span className="normal-case">{order.promo_code.code}</span>
+              {order.discount_amount ? ` (−${formatPrice(order.discount_amount)})` : ''}
             </p>
           )}
           <div className="mt-4 flex justify-between border-t border-line pt-3.5 font-bold lowercase">

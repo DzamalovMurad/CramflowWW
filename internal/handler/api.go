@@ -35,9 +35,13 @@ func (a *API) Routes() http.Handler {
 
 	mux.HandleFunc("GET /api/products", a.listProducts)
 	mux.HandleFunc("GET /api/products/{id}", a.getProduct)
+	mux.HandleFunc("GET /api/addons", a.listAddons)
+	mux.HandleFunc("GET /api/delivery-slots", a.getDeliverySlots)
 	mux.HandleFunc("POST /api/orders", a.createOrder)
 	mux.HandleFunc("GET /api/orders/{id}", a.getOrder)
-	mux.HandleFunc("GET /api/promo/{code}", a.getPromo)
+	mux.HandleFunc("GET /api/orders/{id}/repeat", a.repeatOrder)
+	mux.HandleFunc("GET /api/my-orders", a.listMyOrders)
+	mux.HandleFunc("POST /api/promo/check", a.checkPromo)
 	mux.HandleFunc("GET /api/me", a.getMe)
 	mux.HandleFunc("GET /api/fresh-today", a.getFreshToday)
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -156,17 +160,121 @@ func (a *API) getOrder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, order)
 }
 
-// getPromo — проверка промокода из формы checkout (показать скидку до оформления).
-func (a *API) getPromo(w http.ResponseWriter, r *http.Request) {
-	promo, err := a.Repo.GetPromoByCode(r.PathValue("code"))
+// listAddons — товары-допродажи для блока «Добавить к заказу» в корзине.
+// Отдаём сразу variant_id первого варианта: добавление в один тап.
+func (a *API) listAddons(w http.ResponseWriter, _ *http.Request) {
+	products, err := a.Repo.ListAddons()
 	if err != nil {
-		writeError(w, http.StatusNotFound, "промокод не найден")
+		writeError(w, http.StatusInternalServerError, "не удалось загрузить допродажи")
+		return
+	}
+	type addonCard struct {
+		ID           uint   `json:"id"`
+		Name         string `json:"name"`
+		Price        int    `json:"price"`
+		Image        string `json:"image"`
+		VariantID    uint   `json:"variant_id"`
+		FlowersCount int    `json:"flowers_count"`
+	}
+	cards := make([]addonCard, 0, len(products))
+	for _, p := range products {
+		card := addonCard{
+			ID:           p.ID,
+			Name:         p.Name,
+			Price:        p.Variants[0].Price,
+			VariantID:    p.Variants[0].ID,
+			FlowersCount: p.Variants[0].Quantity,
+		}
+		if len(p.Images) > 0 {
+			card.Image = p.Images[0].URL
+		}
+		cards = append(cards, card)
+	}
+	writeJSON(w, http.StatusOK, cards)
+}
+
+// getDeliverySlots — календарь слотов доставки для чипов в checkout.
+func (a *API) getDeliverySlots(w http.ResponseWriter, _ *http.Request) {
+	days, err := a.Service.DeliverySlotDays()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "не удалось загрузить слоты доставки")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"days": days})
+}
+
+// checkPromo — мгновенная проверка промокода из checkout: все правила
+// (лимиты, область действия, персональные коды) считает сервер по корзине.
+func (a *API) checkPromo(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Code  string                   `json:"code"`
+		Items []service.OrderItemInput `json:"items"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "некорректный запрос")
+		return
+	}
+	tgID := telegramUserID(r.Header.Get("X-Telegram-Init-Data"), a.BotToken)
+	promo, discount, err := a.Service.ValidatePromo(strings.TrimSpace(in.Code), tgID, in.Items)
+	if err != nil {
+		var ve *service.ValidationError
+		if errors.As(err, &ve) {
+			writeError(w, http.StatusBadRequest, ve.Msg)
+			return
+		}
+		log.Printf("check promo: %v", err)
+		writeError(w, http.StatusInternalServerError, "не удалось проверить промокод")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"code":             promo.Code,
-		"discount_percent": promo.DiscountPercent,
+		"code":     promo.Code,
+		"type":     promo.Type,
+		"value":    promo.Value,
+		"label":    promo.DiscountLabel(),
+		"discount": discount,
 	})
+}
+
+// listMyOrders — история заказов текущего пользователя (по initData).
+func (a *API) listMyOrders(w http.ResponseWriter, r *http.Request) {
+	tgID := telegramUserID(r.Header.Get("X-Telegram-Init-Data"), a.BotToken)
+	if tgID == 0 {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+	user, err := a.Repo.GetUserByTelegramID(tgID)
+	if err != nil {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+	orders, err := a.Repo.ListUserOrders(user.ID, 20)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "не удалось загрузить заказы")
+		return
+	}
+	writeJSON(w, http.StatusOK, orders)
+}
+
+// repeatOrder — «повторить заказ»: позиции прошлого заказа по актуальному
+// каталогу с пометками недоступности. Корзину наполняет клиент.
+func (a *API) repeatOrder(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(r.PathValue("id"), 10, 32)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "некорректный id")
+		return
+	}
+	order, err := a.Repo.GetOrder(uint(id))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "заказ не найден")
+		return
+	}
+	// Чужие заказы не показываем: доступ только владельцу по initData.
+	tgID := telegramUserID(r.Header.Get("X-Telegram-Init-Data"), a.BotToken)
+	if order.User.TelegramID != tgID {
+		writeError(w, http.StatusNotFound, "заказ не найден")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": a.Service.RepeatOrder(order)})
 }
 
 // getMe — сохранённый по deep-link промокод текущего пользователя.
@@ -177,9 +285,9 @@ func (a *API) getMe(w http.ResponseWriter, r *http.Request) {
 		if user, err := a.Repo.GetUserByTelegramID(tgID); err == nil {
 			resp["name"] = user.Name
 			resp["phone"] = user.Phone
-			if user.PromoCode != nil {
+			if user.PromoCode != nil && user.PromoCode.DisplayUsable(time.Now()) {
 				resp["promo_code"] = user.PromoCode.Code
-				resp["discount_percent"] = user.PromoCode.DiscountPercent
+				resp["promo_label"] = user.PromoCode.DiscountLabel()
 			}
 		}
 	}

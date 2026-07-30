@@ -51,14 +51,77 @@ export interface OrderItem {
 
 export interface Order {
   id: number;
-  total_price: number;
+  total_price: number; // к оплате (после скидки)
+  discount_amount?: number;
   delivery_address: string;
   delivery_date: string;
-  delivery_time: string;
+  delivery_time: string; // слот «10:00-12:00» … «20:00-22:00»
   comment: string;
+  recipient_name?: string;
+  recipient_phone?: string;
+  address_by_recipient?: boolean;
+  card_text?: string;
+  is_anonymous?: boolean;
   status: string;
+  created_at?: string;
   items: OrderItem[];
-  promo_code?: { code: string; discount_percent: number };
+  promo_code?: { code: string; type?: string; value?: number };
+}
+
+/** Статусы заказа для истории в профиле (строчными — стиль бренда). */
+export const STATUS_LABELS: Record<string, string> = {
+  new: 'новый',
+  confirmed: 'подтверждён',
+  assembling: 'собираем',
+  photo_sent: 'фото отправлено',
+  delivering: 'в пути',
+  delivered: 'доставлен',
+  cancelled: 'отменён',
+};
+
+/** Ответ сервера на проверку промокода: скидка уже рассчитана по корзине. */
+export interface PromoInfo {
+  code: string;
+  type: 'percent' | 'fixed';
+  value: number;
+  label: string; // «10%» или «500 ₽»
+  discount: number; // ₽ для текущей корзины
+}
+
+/** Слот доставки из /api/delivery-slots. */
+export interface SlotInfo {
+  slot: string;
+  available: boolean;
+  reason?: string; // «уже недоступен» | «занят»
+}
+
+export interface SlotDay {
+  date: string; // YYYY-MM-DD
+  label: string; // «сегодня» | «завтра» | «сб, 2 авг»
+  slots: SlotInfo[];
+}
+
+/** Товар-допродажа для блока «Добавить к заказу» в корзине. */
+export interface AddonCard {
+  id: number;
+  name: string;
+  price: number;
+  image: string;
+  variant_id: number;
+  flowers_count: number;
+}
+
+/** Позиция «повторить заказ»: актуальный вариант либо причина недоступности. */
+export interface RepeatItem {
+  available: boolean;
+  reason?: string;
+  product_id?: number;
+  product_name: string;
+  variant_id?: number;
+  flowers_count?: number;
+  price?: number;
+  image?: string;
+  qty: number;
 }
 
 export interface CartItem {
@@ -84,10 +147,6 @@ export const FILTERS = [
   { id: 'preorder', label: '📅 Предзаказ' },
   { id: 'budget', label: '💰 До 3000 ₽' },
 ] as const;
-
-/** Способы доставки: точное время выбирается отдельным полем (окно 9:00–21:00). */
-export const DELIVERY_MODES = ['в течение часа', 'ко времени'] as const;
-export type DeliveryMode = (typeof DELIVERY_MODES)[number];
 
 export function formatPrice(p: number): string {
   return p.toLocaleString('ru-RU') + ' ₽';

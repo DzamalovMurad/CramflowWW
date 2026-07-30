@@ -240,6 +240,7 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 				"/orders — заказы по статусам\n"+
 				"/preorders — 📅 предзаказы (доставка позже сегодня)\n"+
 				"/clients <имя или телефон> — база клиентов\n"+
+				"/promo — 🎟 промокоды (создание, статистика, отключение)\n"+
 				"/add — добавить товар\n"+
 				"/edit — изменить товар\n"+
 				"/hide — скрыть/показать товар\n"+
@@ -269,6 +270,8 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 			b.sendPreorders(msg.Chat.ID)
 		case "clients":
 			b.sendClientSearch(msg.Chat.ID, msg.CommandArguments())
+		case "promo":
+			b.handlePromo(msg.Chat.ID, msg.CommandArguments())
 		case "done":
 			b.wizardDone(msg.Chat.ID)
 		case "clean":
@@ -296,8 +299,8 @@ func (b *Bot) handleCustomer(msg *tgbotapi.Message) {
 			promo, err := b.svc.ApplyDeepLinkPromo(msg.From.ID, code)
 			if err == nil {
 				b.sendShopButton(msg.Chat.ID, fmt.Sprintf(
-					"🎁 Промокод %s активирован — скидка %d%%!\nОн применится автоматически при оформлении заказа.",
-					promo.Code, promo.DiscountPercent))
+					"🎁 Промокод %s активирован — скидка %s!\nОн применится автоматически при оформлении заказа.",
+					promo.Code, promo.DiscountLabel()))
 				return
 			}
 			b.sendShopButton(msg.Chat.ID, "К сожалению, такой промокод не найден. Но цветы всё равно ждут вас 🌸")
@@ -685,6 +688,10 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		if p != nil && p.IsHit {
 			hitLabel = "⭐ Хит: вкл"
 		}
+		addonLabel := "🎁 Допродажа: выкл"
+		if p != nil && p.IsAddon {
+			addonLabel = "🎁 Допродажа: вкл"
+		}
 		kb := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("Название", fmt.Sprintf("editf:%d:name", id)),
@@ -699,6 +706,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 				tgbotapi.NewInlineKeyboardButtonData(hitLabel, fmt.Sprintf("editf:%d:hit", id)),
 				tgbotapi.NewInlineKeyboardButtonData("🏷 Скидка", fmt.Sprintf("editf:%d:disc", id)),
 				tgbotapi.NewInlineKeyboardButtonData("📦 Остаток", fmt.Sprintf("editf:%d:stock", id)),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(addonLabel, fmt.Sprintf("editf:%d:addon", id)),
 			),
 		)
 		b.sendKb(chatID, "Что меняем?", kb)
@@ -737,6 +747,21 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 				b.sendTemp(chatID, "⭐ Бейдж «ХИТ» убран.", 5*time.Second)
 			} else {
 				b.sendTemp(chatID, "⭐ Бейдж «ХИТ» включён.", 5*time.Second)
+			}
+		case "addon":
+			p, err := b.repo.GetProduct(id)
+			if err != nil {
+				b.send(chatID, "Товар не найден.")
+				return
+			}
+			if err := b.repo.SetProductAddon(id, !p.IsAddon); err != nil {
+				b.send(chatID, "Ошибка: "+err.Error())
+				return
+			}
+			if p.IsAddon {
+				b.send(chatID, "🎁 Товар убран из допродаж — снова виден в каталоге.")
+			} else {
+				b.send(chatID, "🎁 Товар помечен как допродажа: пропадёт из каталога букетов и появится в корзине в блоке «Добавить к заказу».")
 			}
 		case "disc":
 			b.wizards[chatID] = &wizard{mode: "edit_discount", productID: id}
@@ -1201,17 +1226,25 @@ func formatOrder(o *model.Order, isNew bool) string {
 		}
 	}
 	sb.WriteString("\n")
-	fmt.Fprintf(&sb, "Адрес: %s\n", o.DeliveryAddress)
-	fmt.Fprintf(&sb, "Дата: %s, %s\n", o.DeliveryDate, o.DeliveryTime)
+	if o.RecipientName != "" || o.RecipientPhone != "" {
+		fmt.Fprintf(&sb, "🎁 Получатель: %s, %s\n", orDash(o.RecipientName), orDash(o.RecipientPhone))
+	}
+	if o.AddressByRecipient {
+		sb.WriteString("Адрес: 📍 уточнит курьер у получателя\n")
+	} else {
+		fmt.Fprintf(&sb, "Адрес: %s\n", o.DeliveryAddress)
+	}
+	fmt.Fprintf(&sb, "Дата: %s, слот %s\n", o.DeliveryDate, o.DeliveryTime)
 	if o.PromoCode != nil {
-		fmt.Fprintf(&sb, "Промокод: %s (−%d%%)\n", o.PromoCode.Code, o.PromoCode.DiscountPercent)
+		fmt.Fprintf(&sb, "Промокод: %s (скидка %s, −%d₽)\n",
+			o.PromoCode.Code, o.PromoCode.DiscountLabel(), o.DiscountAmount)
 	}
 	fmt.Fprintf(&sb, "Итого: %d₽\n", o.TotalPrice)
 	if o.CardText != "" {
 		fmt.Fprintf(&sb, "Открытка: %s\n", o.CardText)
 	}
 	if o.IsAnonymous {
-		sb.WriteString("🤫 Анонимная доставка\n")
+		sb.WriteString("⚠️ Аноним — не называть отправителя\n")
 	}
 	if o.Comment != "" {
 		fmt.Fprintf(&sb, "Комментарий: %s\n", o.Comment)

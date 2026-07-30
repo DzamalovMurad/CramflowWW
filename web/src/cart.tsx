@@ -10,6 +10,10 @@ interface CartState {
   add: (item: Omit<CartItem, 'qty'>, qty?: number) => void;
   setQty: (variantId: number, qty: number) => void;
   remove: (variantId: number) => void;
+  /** Переключение размера S/M/L прямо в корзине (другой вариант того же товара). */
+  changeVariant: (variantId: number, next: { variantId: number; flowersCount: number; price: number }) => void;
+  /** «Повторить заказ»: заменяет содержимое корзины целиком. */
+  fill: (items: CartItem[]) => void;
   clear: () => void;
 }
 
@@ -54,13 +58,33 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setItems((prev) => prev.filter((i) => i.variantId !== variantId));
   }, []);
 
+  const changeVariant = useCallback(
+    (variantId: number, next: { variantId: number; flowersCount: number; price: number }) => {
+      setItems((prev) => {
+        const src = prev.find((i) => i.variantId === variantId);
+        if (!src || variantId === next.variantId) return prev;
+        const dup = prev.find((i) => i.variantId === next.variantId);
+        if (dup) {
+          // Целевой размер уже в корзине — объединяем количество.
+          return prev
+            .filter((i) => i.variantId !== variantId)
+            .map((i) => (i.variantId === next.variantId ? { ...i, qty: Math.min(99, i.qty + src.qty) } : i));
+        }
+        return prev.map((i) => (i.variantId === variantId ? { ...i, ...next } : i));
+      });
+    },
+    [],
+  );
+
+  const fill = useCallback((next: CartItem[]) => setItems(next), []);
+
   const clear = useCallback(() => setItems([]), []);
 
   const value = useMemo<CartState>(() => {
     const total = items.reduce((sum, i) => sum + i.price * i.qty, 0);
     const count = items.reduce((sum, i) => sum + i.qty, 0);
-    return { items, total, count, add, setQty, remove, clear };
-  }, [items, add, setQty, remove, clear]);
+    return { items, total, count, add, setQty, remove, changeVariant, fill, clear };
+  }, [items, add, setQty, remove, changeVariant, fill, clear]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

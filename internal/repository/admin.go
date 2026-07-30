@@ -56,6 +56,8 @@ func (r *Repository) ListPreorders(today string, limit int) ([]model.Order, erro
 }
 
 // ChangeOrderStatus — смена статуса + запись в журнал одной транзакцией.
+// При отмене до сборки (из new/confirmed) применение промокода снимается:
+// запись promo_redemptions удаляется, used_count уменьшается — код снова доступен.
 func (r *Repository) ChangeOrderStatus(orderID uint, from, to string, adminID int64, cancelReason string) error {
 	return r.DB.Transaction(func(tx *gorm.DB) error {
 		upd := map[string]any{"status": to}
@@ -70,6 +72,18 @@ func (r *Repository) ChangeOrderStatus(orderID uint, from, to string, adminID in
 		}
 		if res.RowsAffected == 0 {
 			return gorm.ErrRecordNotFound
+		}
+		if to == model.StatusCancelled && (from == model.StatusNew || from == model.StatusConfirmed) {
+			var red model.PromoRedemption
+			if err := tx.Where("order_id = ?", orderID).First(&red).Error; err == nil {
+				if err := tx.Delete(&red).Error; err != nil {
+					return err
+				}
+				if err := tx.Model(&model.PromoCode{}).Where("id = ?", red.PromoCodeID).
+					Update("used_count", gorm.Expr("GREATEST(used_count - 1, 0)")).Error; err != nil {
+					return err
+				}
+			}
 		}
 		return tx.Create(&model.OrderStatusLog{
 			OrderID:    orderID,

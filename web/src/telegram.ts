@@ -5,6 +5,7 @@
 
 type TelegramWebApp = {
   initData: string;
+  initDataUnsafe?: { start_param?: string };
   colorScheme: 'light' | 'dark';
   themeParams: Record<string, string>;
   ready: () => void;
@@ -38,6 +39,30 @@ export function initTelegram() {
   app.ready();
   app.expand();
   app.onEvent('themeChanged', applyScheme);
+  capturePromoStartParam();
+}
+
+// --- Deep-link промокод: t.me/bot/app?startapp=promo_<CODE> ---
+
+const PROMO_KEY = 'flowix_pending_promo';
+
+// Запоминаем код из start_param: применится автоматически в checkout.
+function capturePromoStartParam() {
+  const param = tg()?.initDataUnsafe?.start_param;
+  if (param?.startsWith('promo_')) {
+    const code = param.slice('promo_'.length).toUpperCase();
+    if (code) localStorage.setItem(PROMO_KEY, code);
+  }
+}
+
+/** Промокод из deep-link, ждущий применения в checkout (null — нет). */
+export function pendingPromo(): string | null {
+  return localStorage.getItem(PROMO_KEY);
+}
+
+/** Сбрасываем сохранённый deep-link-код (после оформления заказа). */
+export function clearPendingPromo() {
+  localStorage.removeItem(PROMO_KEY);
 }
 
 export function haptic(style: 'light' | 'medium' | 'success' = 'light') {

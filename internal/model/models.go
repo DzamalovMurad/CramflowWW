@@ -74,7 +74,10 @@ type Product struct {
 	Category    string `gorm:"not null;index" json:"category"`
 	IsHidden    bool   `gorm:"not null;default:false;index" json:"is_hidden"`
 	IsHit       bool   `gorm:"not null;default:false" json:"is_hit"` // бейдж «ХИТ»
-	Stock       int    `gorm:"not null;default:0" json:"stock"`      // остаток (0 = не показывать «осталось N»)
+	// IsAddon — товар-допродажа (ваза, открытка): показывается в корзине
+	// в блоке «Добавить к заказу», а из основного каталога букетов исключается.
+	IsAddon bool `gorm:"not null;default:false;index" json:"is_addon"`
+	Stock   int  `gorm:"not null;default:0" json:"stock"` // остаток (0 = не показывать «осталось N»)
 	// ArchivedAt — товар «удалён» админом (soft delete): скрыт с витрины навсегда,
 	// но остаётся в БД, чтобы прошлые заказы читались (order_items → product_variants).
 	ArchivedAt *time.Time `gorm:"index" json:"archived_at,omitempty"`
@@ -112,19 +115,31 @@ type User struct {
 }
 
 type Order struct {
-	ID              uint      `gorm:"primaryKey" json:"id"`
-	UserID          uint      `gorm:"not null;index;index:idx_orders_user_status" json:"user_id"`
-	TotalPrice      int       `gorm:"not null" json:"total_price"`
-	DeliveryAddress string    `gorm:"not null" json:"delivery_address"`
-	DeliveryDate    string    `gorm:"not null;index:idx_orders_status_ddate" json:"delivery_date"`
-	DeliveryTime    string    `gorm:"not null" json:"delivery_time"`
-	PromoCodeID     *uint     `json:"promo_code_id,omitempty"`
-	Comment         string    `json:"comment"`
-	CardText        string    `json:"card_text"`     // текст открытки (до 300 символов)
-	IsAnonymous     bool      `json:"is_anonymous"`  // анонимная доставка
-	CancelReason    string    `json:"cancel_reason"` // причина отмены (обязательна при отмене админом)
-	Status          string    `gorm:"not null;default:new;index;index:idx_orders_status_ddate,priority:1;index:idx_orders_user_status,priority:2" json:"status"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID              uint   `gorm:"primaryKey" json:"id"`
+	UserID          uint   `gorm:"not null;index;index:idx_orders_user_status" json:"user_id"`
+	TotalPrice      int    `gorm:"not null" json:"total_price"` // к оплате (после скидки)
+	DiscountAmount  int    `gorm:"not null;default:0" json:"discount_amount"`
+	DeliveryAddress string `gorm:"not null" json:"delivery_address"`
+	DeliveryDate    string `gorm:"not null;index:idx_orders_status_ddate;index:idx_orders_ddate_dtime,priority:1" json:"delivery_date"`
+	// DeliveryTime — слот доставки «10:00-12:00» … «20:00-22:00» (см. service.DeliverySlots).
+	DeliveryTime string `gorm:"not null;index:idx_orders_ddate_dtime,priority:2" json:"delivery_time"`
+	PromoCodeID  *uint  `json:"promo_code_id,omitempty"`
+	Comment      string `json:"comment"`
+
+	// Подарочный флоу: заказ «не себе».
+	RecipientName  string `json:"recipient_name"`
+	RecipientPhone string `json:"recipient_phone"`
+	// AddressByRecipient — «адрес уточнит курьер у получателя»: адрес доставки опционален.
+	AddressByRecipient bool   `gorm:"not null;default:false" json:"address_by_recipient"`
+	CardText           string `json:"card_text"`     // текст открытки (до 200 символов)
+	IsAnonymous        bool   `json:"is_anonymous"`  // анонимная доставка — не называть отправителя
+	CancelReason       string `json:"cancel_reason"` // причина отмены (обязательна при отмене админом)
+
+	// IdempotencyKey — uuid от клиента: повтор запроса (двойной тап, ретрай после
+	// таймаута) возвращает уже созданный заказ вместо дубля.
+	IdempotencyKey *string   `gorm:"uniqueIndex" json:"-"`
+	Status         string    `gorm:"not null;default:new;index;index:idx_orders_status_ddate,priority:1;index:idx_orders_user_status,priority:2" json:"status"`
+	CreatedAt      time.Time `json:"created_at"`
 
 	User      User        `json:"user"`
 	PromoCode *PromoCode  `json:"promo_code,omitempty"`
@@ -194,9 +209,100 @@ type FreshToday struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Типы скидки промокода.
+const (
+	PromoPercent = "percent"
+	PromoFixed   = "fixed"
+)
+
+// Происхождение промокода (для аналитики).
+const (
+	PromoOriginManual       = "manual"
+	PromoOriginReviewReward = "review_reward"
+	PromoOriginSubBonus     = "subscription_bonus"
+)
+
+// Область действия промокода (applies_to):
+//   - "all" — на весь заказ;
+//   - "category:<имя>" — только на товары категории;
+//   - "products:<id,id,…>" — только на перечисленные товары.
+//
+// Скидка всегда считается от суммы подходящих товаров; доставка (если появится
+// платная) скидкой не покрывается никогда.
+const PromoAppliesAll = "all"
+
 type PromoCode struct {
-	ID              uint   `gorm:"primaryKey" json:"id"`
-	Code            string `gorm:"uniqueIndex;not null" json:"code"`
-	DiscountPercent int    `gorm:"not null" json:"discount_percent"`
-	Uses            int    `gorm:"not null;default:0" json:"uses"`
+	ID    uint   `gorm:"primaryKey" json:"id"`
+	Code  string `gorm:"uniqueIndex;not null" json:"code"` // всегда UPPERCASE, 3–20 символов
+	Type  string `gorm:"not null;default:percent" json:"type"`
+	Value int    `gorm:"not null;default:0" json:"value"` // проценты либо рубли
+
+	MaxUses        int `gorm:"not null;default:0" json:"max_uses"`          // 0 = без лимита
+	UsedCount      int `gorm:"not null;default:0" json:"used_count"`        // активные применения (см. PromoRedemption)
+	MaxUsesPerUser int `gorm:"not null;default:1" json:"max_uses_per_user"` // 0 = без лимита
+
+	StartsAt  *time.Time `json:"starts_at,omitempty"`  // nil = действует сразу
+	ExpiresAt *time.Time `json:"expires_at,omitempty"` // nil = бессрочный
+	IsActive  bool       `gorm:"not null;default:true" json:"is_active"`
+
+	MinOrderAmount int    `gorm:"not null;default:0" json:"min_order_amount"` // ₽, 0 = без минимума
+	AppliesTo      string `gorm:"not null;default:all" json:"applies_to"`
+	FirstOrderOnly bool   `gorm:"not null;default:false" json:"first_order_only"`
+	// BoundUserID — персональный код: применить может только этот пользователь (users.id).
+	BoundUserID *uint `json:"bound_user_id,omitempty"`
+
+	AutoGenerated bool      `gorm:"not null;default:false" json:"auto_generated"`
+	Origin        string    `gorm:"not null;default:manual" json:"origin"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+// Discount — скидка в рублях от суммы подходящих товаров (целочисленно, не больше суммы).
+func (p *PromoCode) Discount(eligible int) int {
+	switch p.Type {
+	case PromoFixed:
+		if p.Value > eligible {
+			return eligible
+		}
+		return p.Value
+	default: // percent
+		return eligible - eligible*(100-p.Value)/100
+	}
+}
+
+// DiscountLabel — человекочитаемая скидка: «10%» или «500 ₽».
+func (p *PromoCode) DiscountLabel() string {
+	if p.Type == PromoFixed {
+		return fmt.Sprintf("%d ₽", p.Value)
+	}
+	return fmt.Sprintf("%d%%", p.Value)
+}
+
+// DisplayUsable — быстрые проверки без БД (активность, даты, общий лимит) для
+// витринных мест: /api/me и deep-link. Полная валидация — service.checkPromoRules.
+func (p *PromoCode) DisplayUsable(now time.Time) bool {
+	if !p.IsActive {
+		return false
+	}
+	if p.StartsAt != nil && now.Before(*p.StartsAt) {
+		return false
+	}
+	if p.ExpiresAt != nil && now.After(*p.ExpiresAt) {
+		return false
+	}
+	if p.MaxUses > 0 && p.UsedCount >= p.MaxUses {
+		return false
+	}
+	return true
+}
+
+// PromoRedemption — факт применения промокода к заказу. Учитывает лимит
+// «на пользователя»; при отмене заказа до сборки запись удаляется и код
+// снова доступен (см. Repository.ChangeOrderStatus).
+type PromoRedemption struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	PromoCodeID uint      `gorm:"not null;index:idx_promo_redemptions_promo_user,priority:1" json:"promo_code_id"`
+	UserID      uint      `gorm:"not null;index:idx_promo_redemptions_promo_user,priority:2" json:"user_id"`
+	OrderID     uint      `gorm:"not null;uniqueIndex" json:"order_id"`
+	AmountSaved int       `gorm:"not null" json:"amount_saved"` // ₽
+	CreatedAt   time.Time `json:"created_at"`
 }

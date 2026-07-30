@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -89,6 +91,9 @@ func (r *Repository) ListProducts(category, filter, search string) ([]model.Prod
 	cutoff := time.Now().AddDate(0, 0, -14)
 	out := make([]model.Product, 0, len(all))
 	for _, p := range all {
+		if p.IsAddon {
+			continue // допродажи живут в корзине, а не в каталоге букетов
+		}
 		if category != "" && p.Category != category {
 			continue
 		}
@@ -115,7 +120,7 @@ func (r *Repository) ListProducts(category, filter, search string) ([]model.Prod
 func (r *Repository) listPopular(category, search string) ([]model.Product, error) {
 	q := r.DB.Preload("Variants", func(db *gorm.DB) *gorm.DB {
 		return db.Where("archived_at IS NULL").Order("price ASC")
-	}).Preload("Images").Where("is_hidden = ? AND archived_at IS NULL", false)
+	}).Preload("Images").Where("is_hidden = ? AND is_addon = ? AND archived_at IS NULL", false, false)
 	if category != "" {
 		q = q.Where("category = ?", category)
 	}
@@ -234,6 +239,28 @@ func (r *Repository) SetProductHit(id uint, hit bool) error {
 	return r.DB.Model(&model.Product{}).Where("id = ?", id).Update("is_hit", hit).Error
 }
 
+// SetProductAddon помечает товар как допродажу (ваза, открытка):
+// он уходит из каталога букетов в блок «Добавить к заказу» в корзине.
+func (r *Repository) SetProductAddon(id uint, addon bool) error {
+	defer r.InvalidateCatalog()
+	return r.DB.Model(&model.Product{}).Where("id = ?", id).Update("is_addon", addon).Error
+}
+
+// ListAddons — видимые товары-допродажи для блока «Добавить к заказу».
+func (r *Repository) ListAddons() ([]model.Product, error) {
+	all, err := r.visibleProducts()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]model.Product, 0, 4)
+	for _, p := range all {
+		if p.IsAddon && len(p.Variants) > 0 {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
 func (r *Repository) SetProductStock(id uint, stock int) error {
 	defer r.InvalidateCatalog()
 	return r.DB.Model(&model.Product{}).Where("id = ?", id).Update("stock", stock).Error
@@ -291,6 +318,28 @@ func (r *Repository) GetVariant(id uint) (*model.ProductVariant, error) {
 	return &v, nil
 }
 
+// GetVariantAny — вариант включая архивные (для «повторить заказ»:
+// позиции старых заказов ссылаются на архивные варианты).
+func (r *Repository) GetVariantAny(id uint) (*model.ProductVariant, error) {
+	var v model.ProductVariant
+	if err := r.DB.First(&v, id).Error; err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+// FindLiveVariant — живой вариант товара с тем же количеством цветов:
+// после правки цен старый вариант архивируется, но размер обычно сохраняется.
+func (r *Repository) FindLiveVariant(productID uint, quantity int) (*model.ProductVariant, error) {
+	var v model.ProductVariant
+	err := r.DB.Where("product_id = ? AND quantity = ? AND archived_at IS NULL", productID, quantity).
+		Order("id DESC").First(&v).Error
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
 // --- Users ---
 
 // UpsertUser находит или создаёт пользователя по telegram_id и обновляет имя/телефон.
@@ -330,34 +379,119 @@ func (r *Repository) SetUserPromo(userID uint, promoID uint) error {
 	return r.DB.Model(&model.User{}).Where("id = ?", userID).Update("promo_code_id", promoID).Error
 }
 
-// --- Promo codes ---
-
-func (r *Repository) GetPromoByCode(code string) (*model.PromoCode, error) {
-	var p model.PromoCode
-	err := r.DB.Where("UPPER(code) = UPPER(?)", code).First(&p).Error
-	if err != nil {
-		return nil, err
-	}
-	return &p, nil
-}
-
-func (r *Repository) GetPromoByID(id uint) (*model.PromoCode, error) {
-	var p model.PromoCode
-	if err := r.DB.First(&p, id).Error; err != nil {
-		return nil, err
-	}
-	return &p, nil
-}
-
-func (r *Repository) IncrementPromoUses(id uint) error {
-	return r.DB.Model(&model.PromoCode{}).Where("id = ?", id).
-		Update("uses", gorm.Expr("uses + 1")).Error
-}
-
 // --- Orders ---
 
-func (r *Repository) CreateOrder(o *model.Order) error {
-	return r.DB.Create(o).Error
+// Отказы транзакции создания заказа, которые сервис переводит в понятные тексты.
+var (
+	ErrSlotFull         = errors.New("слот доставки заполнен")
+	ErrPromoExhausted   = errors.New("лимит промокода исчерпан")
+	ErrPromoAlreadyUsed = errors.New("промокод уже использован пользователем")
+)
+
+// CreateOrderChecked создаёт заказ одной транзакцией с проверками под блокировкой:
+// занятость слота (advisory lock по дате+слоту сериализует конкурентов) и лимиты
+// промокода (общий — условным UPDATE used_count, «на пользователя» — пересчётом
+// promo_redemptions под advisory lock по коду+пользователю).
+func (r *Repository) CreateOrderChecked(o *model.Order, slotCapacity int, promo *model.PromoCode) error {
+	return r.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?))",
+			"slot:"+o.DeliveryDate+"|"+o.DeliveryTime).Error; err != nil {
+			return err
+		}
+		var inSlot int64
+		if err := tx.Model(&model.Order{}).
+			Where("delivery_date = ? AND delivery_time = ? AND status <> ?",
+				o.DeliveryDate, o.DeliveryTime, model.StatusCancelled).
+			Count(&inSlot).Error; err != nil {
+			return err
+		}
+		if slotCapacity > 0 && inSlot >= int64(slotCapacity) {
+			return ErrSlotFull
+		}
+
+		if promo != nil {
+			if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtext(?))",
+				fmt.Sprintf("promo:%d:user:%d", promo.ID, o.UserID)).Error; err != nil {
+				return err
+			}
+			if promo.MaxUsesPerUser > 0 {
+				var used int64
+				if err := tx.Model(&model.PromoRedemption{}).
+					Where("promo_code_id = ? AND user_id = ?", promo.ID, o.UserID).
+					Count(&used).Error; err != nil {
+					return err
+				}
+				if used >= int64(promo.MaxUsesPerUser) {
+					return ErrPromoAlreadyUsed
+				}
+			}
+			res := tx.Model(&model.PromoCode{}).
+				Where("id = ? AND is_active AND (max_uses = 0 OR used_count < max_uses)", promo.ID).
+				Update("used_count", gorm.Expr("used_count + 1"))
+			if res.Error != nil {
+				return res.Error
+			}
+			if res.RowsAffected == 0 {
+				return ErrPromoExhausted
+			}
+		}
+
+		if err := tx.Create(o).Error; err != nil {
+			return err
+		}
+		if promo != nil {
+			return tx.Create(&model.PromoRedemption{
+				PromoCodeID: promo.ID,
+				UserID:      o.UserID,
+				OrderID:     o.ID,
+				AmountSaved: o.DiscountAmount,
+			}).Error
+		}
+		return nil
+	})
+}
+
+// GetOrderByIdempotencyKey — заказ по ключу идемпотентности (для повторов запроса).
+func (r *Repository) GetOrderByIdempotencyKey(key string) (*model.Order, error) {
+	var o model.Order
+	if err := r.DB.Select("id").Where("idempotency_key = ?", key).First(&o).Error; err != nil {
+		return nil, err
+	}
+	return r.GetOrder(o.ID)
+}
+
+// ListUserOrders — история заказов клиента для Mini App («мои заказы»).
+func (r *Repository) ListUserOrders(userID uint, limit int) ([]model.Order, error) {
+	var orders []model.Order
+	err := r.DB.Preload("Items").Preload("Items.Variant").Preload("PromoCode").
+		Where("user_id = ?", userID).
+		Order("id DESC").Limit(limit).
+		Find(&orders).Error
+	return orders, err
+}
+
+// CountOrdersInSlots — занятость слотов в диапазоне дат (для /api/delivery-slots).
+func (r *Repository) CountOrdersInSlots(from, to string) (map[string]map[string]int, error) {
+	var rows []struct {
+		DeliveryDate string
+		DeliveryTime string
+		N            int
+	}
+	if err := r.DB.Model(&model.Order{}).
+		Select("delivery_date, delivery_time, COUNT(*) AS n").
+		Where("delivery_date BETWEEN ? AND ? AND status <> ?", from, to, model.StatusCancelled).
+		Group("delivery_date, delivery_time").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := map[string]map[string]int{}
+	for _, row := range rows {
+		if out[row.DeliveryDate] == nil {
+			out[row.DeliveryDate] = map[string]int{}
+		}
+		out[row.DeliveryDate][row.DeliveryTime] = row.N
+	}
+	return out, nil
 }
 
 func (r *Repository) GetOrder(id uint) (*model.Order, error) {

@@ -28,14 +28,15 @@ func testRepo(t *testing.T) *Repository {
 	}
 	if err := db.AutoMigrate(
 		&model.Product{}, &model.ProductVariant{}, &model.ProductImage{},
-		&model.PromoCode{}, &model.User{}, &model.Order{}, &model.OrderItem{},
+		&model.PromoCode{}, &model.PromoRedemption{}, &model.User{},
+		&model.Order{}, &model.OrderItem{},
 		&model.FreshToday{}, &model.OrderStatusLog{},
 	); err != nil {
 		t.Fatalf("миграции: %v", err)
 	}
 	// Чистое состояние перед каждым тестом.
-	db.Exec(`TRUNCATE order_items, orders, order_status_logs, product_variants,
-		product_images, products, users RESTART IDENTITY CASCADE`)
+	db.Exec(`TRUNCATE order_items, orders, order_status_logs, promo_redemptions,
+		product_variants, product_images, products, users RESTART IDENTITY CASCADE`)
 	return New(db)
 }
 
@@ -57,10 +58,10 @@ func TestIntegrationDeleteProductWithOrders(t *testing.T) {
 	}
 	order := &model.Order{
 		UserID: user.ID, TotalPrice: 2990, DeliveryAddress: "ул. Тестовая, 1",
-		DeliveryDate: "2026-08-01", DeliveryTime: "в течение часа", Status: model.StatusNew,
+		DeliveryDate: "2026-08-01", DeliveryTime: "10:00-12:00", Status: model.StatusNew,
 		Items: []model.OrderItem{{VariantID: variantID, Quantity: 1, Price: 2990, ProductName: p.Name}},
 	}
-	if err := r.CreateOrder(order); err != nil {
+	if err := r.CreateOrderChecked(order, 0, nil); err != nil {
 		t.Fatalf("создание заказа: %v", err)
 	}
 
@@ -105,10 +106,10 @@ func TestIntegrationReplaceVariantsWithOrders(t *testing.T) {
 	user, _ := r.UpsertUser(556, "Тест2", "+79000000001")
 	order := &model.Order{
 		UserID: user.ID, TotalPrice: 2290, DeliveryAddress: "ул. Тестовая, 2",
-		DeliveryDate: "2026-08-02", DeliveryTime: "в течение часа", Status: model.StatusNew,
+		DeliveryDate: "2026-08-02", DeliveryTime: "10:00-12:00", Status: model.StatusNew,
 		Items: []model.OrderItem{{VariantID: oldVariantID, Quantity: 1, Price: 2290, ProductName: p.Name}},
 	}
-	if err := r.CreateOrder(order); err != nil {
+	if err := r.CreateOrderChecked(order, 0, nil); err != nil {
 		t.Fatalf("создание заказа: %v", err)
 	}
 

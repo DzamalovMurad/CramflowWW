@@ -50,10 +50,30 @@ func main() {
 	// Миграции: GORM AutoMigrate покрывает всю схему (SQL-эквивалент — в /migrations).
 	if err := db.AutoMigrate(
 		&model.Product{}, &model.ProductVariant{}, &model.ProductImage{},
-		&model.PromoCode{}, &model.User{}, &model.Order{}, &model.OrderItem{},
+		&model.PromoCode{}, &model.PromoRedemption{}, &model.User{},
+		&model.Order{}, &model.OrderItem{},
 		&model.FreshToday{}, &model.OrderStatusLog{},
 	); err != nil {
 		log.Fatalf("миграции: %v", err)
+	}
+
+	// Промокоды старой схемы (discount_percent/uses) переводим в новую
+	// (type/value/used_count). AutoMigrate колонки добавляет, но данные не
+	// переносит и лишние колонки не удаляет — добиваем идемпотентным SQL.
+	if err := db.Exec(`DO $$
+	BEGIN
+		IF EXISTS (SELECT 1 FROM information_schema.columns
+		           WHERE table_name = 'promo_codes' AND column_name = 'discount_percent') THEN
+			UPDATE promo_codes SET type = 'percent', value = discount_percent WHERE value = 0;
+			ALTER TABLE promo_codes DROP COLUMN discount_percent;
+		END IF;
+		IF EXISTS (SELECT 1 FROM information_schema.columns
+		           WHERE table_name = 'promo_codes' AND column_name = 'uses') THEN
+			UPDATE promo_codes SET used_count = uses WHERE used_count = 0;
+			ALTER TABLE promo_codes DROP COLUMN uses;
+		END IF;
+	END $$;`).Error; err != nil {
+		log.Fatalf("миграция промокодов: %v", err)
 	}
 
 	// Куда складывать фото товаров:
@@ -78,6 +98,10 @@ func main() {
 
 	repo := repository.New(db)
 	svc := service.New(repo)
+	// Вместимость слота доставки (заказов на 2-часовое окно).
+	if n, err := strconv.Atoi(envOr("SLOT_CAPACITY", "")); err == nil && n > 0 {
+		svc.SlotCapacity = n
+	}
 
 	if *seed {
 		if err := runSeed(repo, uploadDir); err != nil {
@@ -214,8 +238,10 @@ func runSeed(repo *repository.Repository, _ string) error {
 	}
 
 	promos := []model.PromoCode{
-		{Code: "WELCOME10", DiscountPercent: 10},
-		{Code: "FLOWERS15", DiscountPercent: 15},
+		{Code: "WELCOME10", Type: model.PromoPercent, Value: 10, MaxUsesPerUser: 1,
+			IsActive: true, AppliesTo: model.PromoAppliesAll, Origin: model.PromoOriginManual},
+		{Code: "FLOWERS15", Type: model.PromoPercent, Value: 15, MaxUsesPerUser: 1,
+			IsActive: true, AppliesTo: model.PromoAppliesAll, Origin: model.PromoOriginManual},
 	}
 	for i := range promos {
 		if err := repo.DB.Create(&promos[i]).Error; err != nil {

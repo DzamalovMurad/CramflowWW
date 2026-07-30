@@ -1,4 +1,4 @@
-import type { Order, Product, ProductCard } from './types';
+import type { AddonCard, Order, Product, ProductCard, PromoInfo, RepeatItem, SlotDay } from './types';
 import { initDataHeader } from './telegram';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -70,22 +70,54 @@ export interface OrderPayload {
   phone: string;
   delivery_address: string;
   delivery_date: string;
-  delivery_time: string;
+  delivery_time: string; // слот «10:00-12:00» … «20:00-22:00»
   comment: string;
   card_text: string;
   is_anonymous: boolean;
+  recipient_name: string;
+  recipient_phone: string;
+  address_by_recipient: boolean;
   promo_code: string;
+  idempotency_key: string;
 }
 
 export function createOrder(payload: OrderPayload): Promise<Order> {
   return request('/api/orders', { method: 'POST', body: JSON.stringify(payload) });
 }
 
-export function checkPromo(code: string): Promise<{ code: string; discount_percent: number }> {
-  return request(`/api/promo/${encodeURIComponent(code)}`);
+/** Проверка промокода по корзине: сервер считает все правила и итоговую скидку. */
+export function checkPromo(code: string, items: { variant_id: number; quantity: number }[]): Promise<PromoInfo> {
+  return request('/api/promo/check', { method: 'POST', body: JSON.stringify({ code, items }) });
 }
 
-export function fetchMe(): Promise<{ name?: string; phone?: string; promo_code?: string; discount_percent?: number }> {
+export function fetchSlots(): Promise<{ days: SlotDay[] }> {
+  return request('/api/delivery-slots');
+}
+
+export function fetchAddons(): Promise<AddonCard[]> {
+  return request('/api/addons');
+}
+
+export function fetchMyOrders(): Promise<Order[]> {
+  return request('/api/my-orders');
+}
+
+export function fetchRepeatOrder(id: number): Promise<{ items: RepeatItem[] }> {
+  return request(`/api/orders/${id}/repeat`);
+}
+
+/** uuid для идемпотентного создания заказа (fallback для старых WebView). */
+export function uuid(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+export function fetchMe(): Promise<{ name?: string; phone?: string; promo_code?: string; promo_label?: string }> {
   return request('/api/me');
 }
 
