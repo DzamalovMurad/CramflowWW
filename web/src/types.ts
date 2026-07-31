@@ -5,8 +5,17 @@ export interface ProductCard {
   price: number; // минимальная цена
   old_price?: number; // цена до скидки (для бейджа −N%)
   image: string;
-  is_hit?: boolean;
+  is_hit?: boolean; // бейдж «хит»
+  low_stock?: boolean; // ручной бейдж «мало осталось»
+  seasonal?: boolean; // товар есть в «сегодня на базе» → бейдж «сезонный»
   stock?: number; // остаток (для бейджа «осталось N»)
+}
+
+/** Конфиг развёрнутого сервиса (/api/config). */
+export interface AppConfig {
+  bot_username: string;
+  fallback_orders: boolean;
+  mini_app_url: string;
 }
 
 export interface ProductVariant {
@@ -29,6 +38,8 @@ export interface Product {
   description: string;
   category: string;
   is_hit?: boolean;
+  low_stock?: boolean;
+  seasonal?: boolean;
   stock?: number;
   variants: ProductVariant[];
   images: ProductImage[];

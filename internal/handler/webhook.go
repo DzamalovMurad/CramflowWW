@@ -1,6 +1,9 @@
 package handler
 
 import (
+	"bytes"
+	"crypto/subtle"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,13 +16,20 @@ import (
 // (бесплатные тарифы PaaS): при long polling уснувший сервис перестаёт получать
 // сообщения, а с webhook входящий запрос от Telegram сам будит контейнер.
 
+// headerSecretToken — заголовок, которым Telegram подтверждает, что апдейт
+// действительно от него (Bot API 6.1+).
+const headerSecretToken = "X-Telegram-Bot-Api-Secret-Token"
+
 // WebhookPath — секретный путь, куда Telegram присылает апдейты.
 func (b *Bot) WebhookPath(secret string) string {
 	return "/telegram/" + secret
 }
 
 // SetupWebhook регистрирует webhook в Telegram. baseURL — публичный https-адрес
-// сервиса, secret — случайная строка в пути (плюс secret_token в заголовке).
+// сервиса, secret — случайная строка: она же в пути, она же в secret_token.
+//
+// tgbotapi v5.5.1 не умеет secret_token, поэтому setWebhook зовём напрямую:
+// без него любой, кто угадает путь, мог бы слать боту поддельные апдейты.
 func (b *Bot) SetupWebhook(baseURL, secret string) error {
 	baseURL = strings.TrimSuffix(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
@@ -29,17 +39,34 @@ func (b *Bot) SetupWebhook(baseURL, secret string) error {
 	if !strings.Contains(baseURL, "://") {
 		baseURL = "https://" + baseURL
 	}
-	wh, err := tgbotapi.NewWebhook(baseURL + b.WebhookPath(secret))
+
+	body, err := json.Marshal(map[string]any{
+		"url":             baseURL + b.WebhookPath(secret),
+		"max_connections": 20,
+		"secret_token":    secret,
+	})
 	if err != nil {
 		return err
 	}
-	// tgbotapi v5.5.1 не умеет secret_token, поэтому секрет живёт в пути:
-	// адрес знают только Telegram и мы, запросы идут по HTTPS.
-	wh.MaxConnections = 20
-	if _, err := b.api.Request(wh); err != nil {
+	endpoint := fmt.Sprintf("https://api.telegram.org/bot%s/setWebhook", b.api.Token)
+	resp, err := http.Post(endpoint, "application/json", bytes.NewReader(body))
+	if err != nil {
 		return err
 	}
-	log.Printf("бот работает через webhook: %s%s", baseURL, b.WebhookPath(secret))
+	defer resp.Body.Close()
+
+	var result struct {
+		OK          bool   `json:"ok"`
+		Description string `json:"description"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return err
+	}
+	if !result.OK {
+		return fmt.Errorf("webhook: Telegram отказал: %s", result.Description)
+	}
+
+	log.Printf("бот работает через webhook: %s%s (secret_token включён)", baseURL, b.WebhookPath(secret))
 	return nil
 }
 
@@ -50,10 +77,19 @@ func (b *Bot) RemoveWebhook() error {
 }
 
 // WebhookHandler обрабатывает апдейты от Telegram и передаёт их в тот же
-// роутер, что и при long polling. Доступ к эндпоинту защищён секретом в пути;
-// права админа всё равно проверяются в handleMessage/handleCallback.
+// роутер, что и при long polling. Подлинность апдейта подтверждают секрет
+// в пути и secret_token в заголовке; права админа всё равно проверяются
+// в handleMessage/handleCallback.
 func (b *Bot) WebhookHandler(secret string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Сравнение постоянного времени: путь и заголовок — общий секрет.
+		got := r.Header.Get(headerSecretToken)
+		if subtle.ConstantTimeCompare([]byte(got), []byte(secret)) != 1 {
+			log.Printf("webhook: отклонён апдейт с неверным secret_token (%s)", clientIP(r))
+			http.NotFound(w, r) // не подсказываем, что путь угадан
+			return
+		}
+
 		update, err := b.api.HandleUpdate(r)
 		if err != nil {
 			log.Printf("webhook: %v", err)
@@ -62,18 +98,20 @@ func (b *Bot) WebhookHandler(secret string) http.HandlerFunc {
 		}
 		// Отвечаем сразу, обработка — в фоне: Telegram не ждёт нашу логику.
 		w.WriteHeader(http.StatusOK)
+
+		// Задача учитывается в WaitGroup: при SIGTERM сервис дождётся,
+		// пока начатые ответы клиенту уйдут в Telegram.
+		if !b.trackStart() {
+			return // уже останавливаемся — апдейт Telegram пришлёт повторно
+		}
 		go func() {
+			defer b.trackDone()
 			defer func() {
 				if rec := recover(); rec != nil {
-					log.Printf("bot panic: %v", rec)
+					b.capturePanic(rec, "webhook")
 				}
 			}()
-			switch {
-			case update.CallbackQuery != nil:
-				b.handleCallback(update.CallbackQuery)
-			case update.Message != nil:
-				b.handleMessage(update.Message)
-			}
+			b.dispatch(*update)
 		}()
 	}
 }

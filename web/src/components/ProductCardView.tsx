@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { ProductCard } from '../types';
 import { formatPrice, discountPercent } from '../types';
 import { content } from '../content';
+import { productBadges } from '../badges';
 import { haptic } from '../telegram';
 import { useCart } from '../cart';
 import { IconPlus, IconMinus } from './icons';
@@ -13,6 +14,11 @@ interface Props {
   onAdd: (product: ProductCard) => void | Promise<void>;
 }
 
+// Пропорция фото карточки (4:5). Числа идут в width/height картинки:
+// сами размеры задаёт CSS, браузеру нужно только соотношение.
+const CARD_IMAGE_W = 400;
+const CARD_IMAGE_H = 500;
+
 /**
  * Карточка каталога (стиль Bunch): фото со скелетоном, бейджи, цена со скидкой.
  * Кнопка «+» после добавления плавно расширяется в счётчик [−  N  +];
@@ -20,7 +26,7 @@ interface Props {
  */
 export default function ProductCardView({ product, index, onAdd }: Props) {
   const off = discountPercent(product.price, product.old_price);
-  const lowStock = product.stock !== undefined && product.stock > 0 && product.stock <= 5;
+  const badges = productBadges(product, off);
 
   const { items, setQty } = useCart();
   const inCart = items.filter((i) => i.productId === product.id);
@@ -108,7 +114,13 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
                 src={product.image}
                 alt={product.name}
                 loading="lazy"
+                decoding="async"
+                // Явные размеры задают браузеру пропорцию 4:5 до загрузки —
+                // сетка не прыгает, когда фото приходят вразнобой.
+                width={CARD_IMAGE_W}
+                height={CARD_IMAGE_H}
                 onLoad={() => setImgLoaded(true)}
+                onError={() => setImgLoaded(true)}
                 className={`h-full w-full object-cover transition-all duration-500 group-active:scale-105 ${
                   imgLoaded ? 'opacity-100' : 'opacity-0'
                 }`}
@@ -119,11 +131,14 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
           </div>
         </Link>
 
-        {/* Бейджи слева сверху */}
+        {/* Бейджи в углу фото. Порядок — по важности для покупателя;
+            больше трёх не показываем, иначе плашки съедают снимок. */}
         <div className="pointer-events-none absolute left-2.5 top-2.5 flex flex-col items-start gap-1.5">
-          {product.is_hit && <span className="badge badge-hit">хит</span>}
-          {off > 0 && <span className="badge badge-sale">−{off}%</span>}
-          {lowStock && <span className="badge badge-stock">осталось {product.stock}</span>}
+          {badges.slice(0, 3).map((b) => (
+            <span key={b.key} className={`badge ${b.cls}`}>
+              {b.label}
+            </span>
+          ))}
         </div>
 
         {/* «+» ⇄ счётчик: контейнер плавно меняет ширину */}

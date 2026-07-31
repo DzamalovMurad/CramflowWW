@@ -6,6 +6,10 @@ import { IconClose } from './icons';
  * Свайп-галерея фото товара: scroll-snap, индикатор-точки,
  * фуллскрин по тапу (закрытие тапом/крестиком), lazy-load.
  */
+// Фото товара квадратные (aspect-square). Число идёт в width/height —
+// размер задаёт CSS, браузеру нужно только соотношение сторон.
+const GALLERY_SIDE = 800;
+
 export default function Gallery({ images, alt }: { images: ProductImage[]; alt: string }) {
   const [active, setActive] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
@@ -34,7 +38,12 @@ export default function Gallery({ images, alt }: { images: ProductImage[]; alt: 
               key={img.id ?? i}
               src={img.url}
               alt={`${alt} — фото ${i + 1}`}
+              // Первое фото — сразу, остальные по мере пролистывания.
               loading={i === 0 ? 'eager' : 'lazy'}
+              decoding={i === 0 ? 'sync' : 'async'}
+              // Квадрат: пропорцию браузер знает до загрузки, лента не дёргается.
+              width={GALLERY_SIDE}
+              height={GALLERY_SIDE}
               onClick={() => setFullscreen(true)}
               className="h-full w-full flex-shrink-0 snap-center object-cover"
             />

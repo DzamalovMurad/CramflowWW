@@ -21,11 +21,10 @@ type Postgres struct {
 	BaseURL string // префикс URL, например /uploads
 }
 
-func NewPostgres(db *gorm.DB, baseURL string) (*Postgres, error) {
-	if err := db.AutoMigrate(&model.Upload{}); err != nil {
-		return nil, fmt.Errorf("storage: миграция uploads: %w", err)
-	}
-	return &Postgres{DB: db, BaseURL: strings.TrimSuffix(baseURL, "/")}, nil
+// NewPostgres — таблицу uploads создаёт миграция 00001_baseline, здесь
+// схему не трогаем: единственный источник правды о ней — /migrations.
+func NewPostgres(db *gorm.DB, baseURL string) *Postgres {
+	return &Postgres{DB: db, BaseURL: strings.TrimSuffix(baseURL, "/")}
 }
 
 // Фото принимаются файлом в оригинале, поэтому лимит равен пределу,

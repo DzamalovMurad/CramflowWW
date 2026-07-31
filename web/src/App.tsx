@@ -10,7 +10,7 @@ import Profile from './pages/Profile';
 import TabBar from './components/TabBar';
 import AppLoader from './components/AppLoader';
 import { warmUp } from './api';
-import { tg } from './telegram';
+import { haptic, orderFromStartParam, tg } from './telegram';
 
 export default function App() {
   const location = useLocation();
@@ -27,6 +27,18 @@ export default function App() {
     return () => {
       alive = false;
     };
+  }, []);
+
+  // Пуш о смене статуса открывает Mini App с параметром order_<id>:
+  // сразу везём клиента на его заказ и подтверждаем открытие тактильно —
+  // так переход из уведомления ощущается как продолжение, а не как рестарт.
+  useEffect(() => {
+    const orderId = orderFromStartParam();
+    if (!orderId) return;
+    haptic('light');
+    navigate(`/confirmation/${orderId}`, { replace: true });
+    // Намеренно один раз за сессию: start_param не меняется без перезапуска.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Кнопка «Назад» Telegram на всех страницах, кроме главной.

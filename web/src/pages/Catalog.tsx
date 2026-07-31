@@ -4,6 +4,7 @@ import Header from '../components/Header';
 import CategoryChips from '../components/CategoryChips';
 import FilterPills from '../components/FilterPills';
 import ProductCardView from '../components/ProductCardView';
+import { CatalogGridSkeleton } from '../components/Skeletons';
 import { fetchProduct, fetchProducts } from '../api';
 import { useCart } from '../cart';
 import { haptic } from '../telegram';
@@ -85,15 +86,7 @@ export default function Catalog() {
       {error && <p className="p-6 text-center text-sm lowercase text-muted">{error}</p>}
 
       {products === null && !error && (
-        <div className="grid grid-cols-2 gap-x-3 gap-y-6 p-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i}>
-              <div className="aspect-[4/5] animate-pulse rounded-card bg-tile" />
-              <div className="mt-2.5 h-3.5 w-2/3 animate-pulse rounded bg-tile" />
-              <div className="mt-2 h-4 w-1/3 animate-pulse rounded bg-tile" />
-            </div>
-          ))}
-        </div>
+        <CatalogGridSkeleton />
       )}
 
       {products !== null && products.length === 0 && (

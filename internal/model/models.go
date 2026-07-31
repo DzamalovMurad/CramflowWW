@@ -75,6 +75,12 @@ type Product struct {
 	IsHidden    bool   `gorm:"not null;default:false;index" json:"is_hidden"`
 	IsHit       bool   `gorm:"not null;default:false" json:"is_hit"` // бейдж «ХИТ»
 	Stock       int    `gorm:"not null;default:0" json:"stock"`      // остаток (0 = не показывать «осталось N»)
+	// LowStock — ручной бейдж «мало осталось»: флорист видит остаток на базе,
+	// но пересчитывать штуки в Stock ему лень. Ставится тумблером в /edit.
+	LowStock bool `gorm:"not null;default:false" json:"low_stock"`
+	// SortOrder — порядок в подборках (сейчас — «хиты» для пустой корзины).
+	// Меньше = выше; при равенстве побеждает более новый товар.
+	SortOrder int `gorm:"not null;default:0" json:"sort_order"`
 	// ArchivedAt — товар «удалён» админом (soft delete): скрыт с витрины навсегда,
 	// но остаётся в БД, чтобы прошлые заказы читались (order_items → product_variants).
 	ArchivedAt *time.Time `gorm:"index" json:"archived_at,omitempty"`
@@ -193,6 +199,21 @@ type FreshToday struct {
 	Items     string    `gorm:"not null" json:"items"`            // «пионы, ранункулюсы, эустома»
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// Setting — key/value настроек рантайма, которые админ переключает из бота
+// и которые обязаны пережить рестарт контейнера (fallback-режим заказов).
+type Setting struct {
+	Key       string    `gorm:"primaryKey" json:"key"`
+	Value     string    `gorm:"not null" json:"value"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Ключи настроек.
+const (
+	// SettingFallbackOrders — «on», если заказ можно оформить диалогом в боте
+	// (Mini App недоступен). Переключается командой /fallback on|off.
+	SettingFallbackOrders = "fallback_orders"
+)
 
 type PromoCode struct {
 	ID              uint   `gorm:"primaryKey" json:"id"`

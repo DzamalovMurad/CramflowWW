@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,11 +12,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
 	"github.com/dzamalovmurad/cramflowww/internal/model"
+	"github.com/dzamalovmurad/cramflowww/internal/observability"
 	"github.com/dzamalovmurad/cramflowww/internal/repository"
 	"github.com/dzamalovmurad/cramflowww/internal/service"
 	"github.com/dzamalovmurad/cramflowww/internal/storage"
@@ -29,14 +32,100 @@ type Bot struct {
 	adminIDs []int64 // whitelist: команды и callback-кнопки проверяются по нему
 	appURL   string
 
-	// Состояние визардов /add и /edit — по chat_id, апдейты обрабатываются
-	// последовательно в Run(), поэтому map без мьютекса.
+	// OnBackup — ручной запуск бэкапа по /backup (ставится в main).
+	OnBackup func(chatID int64)
+
+	// fallback — диалоги заказа в чате, когда Mini App недоступен.
+	fallback *fallbackState
+
+	// Состояние визардов /add и /edit — по chat_id. В режиме webhook апдейты
+	// приходят параллельно, поэтому доступ под мьютексом.
 	wizards map[int64]*wizard
+	wizMu   sync.Mutex
 
 	// Журнал сообщений в админ-чатах для /clean. Мьютекс нужен:
 	// NotifyNewOrder пишет из горутины сервиса.
 	msgLog map[int64][]int
 	logMu  sync.Mutex
+
+	// Учёт незавершённых отправок для graceful shutdown: по SIGTERM сервис
+	// перестаёт принимать апдейты и ждёт, пока начатые ответы уйдут клиенту.
+	inflight sync.WaitGroup
+	stopping atomic.Bool
+}
+
+// trackStart регистрирует начатую фоновую задачу бота.
+// false — сервис останавливается, новую работу начинать нельзя.
+func (b *Bot) trackStart() bool {
+	if b.stopping.Load() {
+		return false
+	}
+	b.inflight.Add(1)
+	return true
+}
+
+func (b *Bot) trackDone() { b.inflight.Done() }
+
+func (b *Bot) capturePanic(rec any, component string) {
+	observability.CapturePanic(rec, map[string]string{"component": "bot:" + component})
+}
+
+// dispatch направляет апдейт в нужный обработчик (общий для polling и webhook).
+func (b *Bot) dispatch(update tgbotapi.Update) {
+	switch {
+	case update.CallbackQuery != nil:
+		b.handleCallback(update.CallbackQuery)
+	case update.Message != nil:
+		b.handleMessage(update.Message)
+	}
+}
+
+// Stop останавливает приём апдейтов и ждёт, пока завершатся начатые отправки
+// (или пока не истечёт ctx). Вызывается из graceful shutdown в main.
+func (b *Bot) Stop(ctx context.Context) {
+	if b.stopping.Swap(true) {
+		return
+	}
+	b.api.StopReceivingUpdates()
+
+	done := make(chan struct{})
+	go func() {
+		b.inflight.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		log.Println("бот: незавершённых отправок нет")
+	case <-ctx.Done():
+		log.Println("бот: не дождались отправок, выходим по таймауту")
+	}
+}
+
+// API даёт доступ к Bot API для проб живости и отправки бэкапов.
+func (b *Bot) API() *tgbotapi.BotAPI { return b.api }
+
+// Username — @имя бота (для кнопки «открыть чат с ботом» в Mini App).
+func (b *Bot) Username() string { return b.api.Self.UserName }
+
+// --- Состояние визардов ---
+
+func (b *Bot) getWizard(chatID int64) (*wizard, bool) {
+	b.wizMu.Lock()
+	defer b.wizMu.Unlock()
+	w, ok := b.wizards[chatID]
+	return w, ok
+}
+
+func (b *Bot) setWizard(chatID int64, w *wizard) {
+	b.wizMu.Lock()
+	b.wizards[chatID] = w
+	b.wizMu.Unlock()
+}
+
+func (b *Bot) clearWizard(chatID int64) {
+	b.wizMu.Lock()
+	delete(b.wizards, chatID)
+	b.wizMu.Unlock()
 }
 
 const msgLogCap = 400 // сколько последних сообщений помним на чат
@@ -102,6 +191,7 @@ func NewBot(token string, adminIDs []int64, appURL string, repo *repository.Repo
 		appURL:   appURL,
 		wizards:  map[int64]*wizard{},
 		msgLog:   map[int64][]int{},
+		fallback: newFallbackState(),
 	}
 	svc.NotifyNewOrder = b.NotifyNewOrder
 	b.syncMenuButton()
@@ -145,18 +235,17 @@ func (b *Bot) Run() {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 30
 	for update := range b.api.GetUpdatesChan(u) {
+		if !b.trackStart() {
+			return // получен SIGTERM: новые апдейты не разбираем
+		}
 		func() {
+			defer b.trackDone()
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("bot panic: %v", r)
+					b.capturePanic(r, "polling")
 				}
 			}()
-			switch {
-			case update.CallbackQuery != nil:
-				b.handleCallback(update.CallbackQuery)
-			case update.Message != nil:
-				b.handleMessage(update.Message)
-			}
+			b.dispatch(update)
 		}()
 	}
 }
@@ -245,17 +334,34 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 				"/hide — скрыть/показать товар\n"+
 				"/delete — удалить товар\n"+
 				"/fresh — что сегодня свежее на базе\n"+
+				"/fallback on|off — заказ через диалог бота (если Mini App лежит)\n"+
+				"/backup — 💾 выгрузить дамп БД прямо сейчас\n"+
 				"/clean — 🧹 очистить историю чата\n"+
 				"/cancel — прервать текущее действие")
+		case "fallback":
+			b.setFallback(msg.Chat.ID, msg.CommandArguments())
+		case "backup":
+			if b.OnBackup == nil {
+				b.send(msg.Chat.ID, "Бэкапы не настроены: задайте BACKUP_CHANNEL_ID (см. README).")
+				return
+			}
+			b.send(msg.Chat.ID, "💾 Делаю дамп базы — пришлю файл, как будет готов.")
+			chatID := msg.Chat.ID
+			if b.trackStart() {
+				observability.GoSafe("backup:manual", func() {
+					defer b.trackDone()
+					b.OnBackup(chatID)
+				})
+			}
 		case "fresh":
 			if items := strings.TrimSpace(msg.CommandArguments()); items != "" {
 				b.saveFresh(msg.Chat.ID, items)
 				return
 			}
-			b.wizards[msg.Chat.ID] = &wizard{mode: "fresh"}
+			b.setWizard(msg.Chat.ID, &wizard{mode: "fresh"})
 			b.send(msg.Chat.ID, "🌷 Что сегодня свежее? Пришлите одной строкой, например:\nпионы, ранункулюсы, эустома")
 		case "add":
-			b.wizards[msg.Chat.ID] = &wizard{mode: "add", step: "name"}
+			b.setWizard(msg.Chat.ID, &wizard{mode: "add", step: "name"})
 			b.send(msg.Chat.ID, "🌸 Новый товар.\n\nШаг 1/5 — введите название:")
 		case "edit":
 			b.sendProductList(msg.Chat.ID, "Что редактируем?", "edit")
@@ -274,7 +380,7 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		case "clean":
 			b.cleanChat(msg.Chat.ID)
 		case "cancel":
-			delete(b.wizards, msg.Chat.ID)
+			b.clearWizard(msg.Chat.ID)
 			b.sendTemp(msg.Chat.ID, "Действие отменено.", 4*time.Second)
 		default:
 			b.send(msg.Chat.ID, "Неизвестная команда. /help — список команд.")
@@ -282,54 +388,90 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 		return
 	}
 
-	if w, ok := b.wizards[msg.Chat.ID]; ok {
+	if w, ok := b.getWizard(msg.Chat.ID); ok {
 		b.wizardInput(msg, w)
 		return
 	}
 	b.send(msg.Chat.ID, "Используйте команды: /add /edit /hide /delete /orders")
 }
 
-// handleCustomer — не-админ: deep-link промокоды и кнопка Mini App.
+// handleCustomer — не-админ: deep-link промокоды, кнопка Mini App
+// и заказ диалогом, если Mini App недоступен.
 func (b *Bot) handleCustomer(msg *tgbotapi.Message) {
-	if msg.IsCommand() && msg.Command() == "start" {
-		if code := strings.TrimSpace(msg.CommandArguments()); code != "" {
-			promo, err := b.svc.ApplyDeepLinkPromo(msg.From.ID, code)
-			if err == nil {
-				b.sendShopButton(msg.Chat.ID, fmt.Sprintf(
-					"🎁 Промокод %s активирован — скидка %d%%!\nОн применится автоматически при оформлении заказа.",
-					promo.Code, promo.DiscountPercent))
+	if msg.IsCommand() {
+		switch msg.Command() {
+		case "order":
+			b.handleFallbackCommand(msg.Chat.ID)
+			return
+		case "cancel":
+			b.fallback.clear(msg.Chat.ID)
+			b.send(msg.Chat.ID, "Хорошо, отменил. Начать заказ заново — /order")
+			return
+		case "start":
+			if code := strings.TrimSpace(msg.CommandArguments()); code != "" {
+				promo, err := b.svc.ApplyDeepLinkPromo(msg.From.ID, code)
+				if err == nil {
+					b.sendShopButton(msg.Chat.ID, fmt.Sprintf(
+						"🎁 Промокод %s активирован — скидка %d%%!\nОн применится автоматически при оформлении заказа.",
+						promo.Code, promo.DiscountPercent))
+					return
+				}
+				b.sendShopButton(msg.Chat.ID, "К сожалению, такой промокод не найден. Но цветы всё равно ждут вас 🌸")
 				return
 			}
-			b.sendShopButton(msg.Chat.ID, "К сожалению, такой промокод не найден. Но цветы всё равно ждут вас 🌸")
-			return
 		}
+	}
+
+	// Идёт диалог заказа — ответ клиента относится к нему.
+	if b.handleFallbackInput(msg) {
+		return
 	}
 	b.sendShopButton(msg.Chat.ID, "🌸 Добро пожаловать в Flowix!\nВыбирайте букеты в нашем магазине:")
 }
 
-// webAppKeyboard — inline-кнопка с web_app (запуск Mini App). В tgbotapi v5.5.1
-// такого поля нет, поэтому собираем JSON-совместимую структуру сами:
-// библиотека сериализует ReplyMarkup через json.Marshal как есть.
+// webAppKeyboard — inline-клавиатура с кнопкой web_app (запуск Mini App).
+// В tgbotapi v5.5.1 поля web_app нет, поэтому собираем JSON-совместимую
+// структуру сами: библиотека сериализует ReplyMarkup через json.Marshal как есть.
 type webAppKeyboard struct {
 	InlineKeyboard [][]webAppButton `json:"inline_keyboard"`
 }
 
 type webAppButton struct {
-	Text   string `json:"text"`
-	WebApp struct {
-		URL string `json:"url"`
-	} `json:"web_app"`
+	Text         string     `json:"text"`
+	WebApp       *webAppURL `json:"web_app,omitempty"`
+	CallbackData string     `json:"callback_data,omitempty"`
 }
 
+type webAppURL struct {
+	URL string `json:"url"`
+}
+
+// sendShopButton — приглашение в магазин. Если Mini App не настроен или
+// включён fallback-режим, рядом (или вместо) появляется кнопка заказа в чате:
+// клиент не должен упереться в тупик, когда приложение недоступно.
 func (b *Bot) sendShopButton(chatID int64, text string) {
-	if b.appURL == "" {
+	var row []webAppButton
+	if b.appURL != "" {
+		row = append(row, webAppButton{Text: "🌸 Открыть магазин", WebApp: &webAppURL{URL: b.appURL}})
+	}
+	if b.fallbackEnabled() {
+		row = append(row, webAppButton{Text: "💬 Заказать в чате", CallbackData: "forder"})
+	}
+	if len(row) == 0 {
 		b.send(chatID, text)
 		return
 	}
-	btn := webAppButton{Text: "🌸 Открыть магазин"}
-	btn.WebApp.URL = b.appURL
+	if b.appURL == "" {
+		text += "\n\nПриложение магазина сейчас недоступно — оформим заказ прямо здесь."
+	}
+
 	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ReplyMarkup = webAppKeyboard{InlineKeyboard: [][]webAppButton{{btn}}}
+	// Кнопки в столбик: подписи длинные, в одну строку не помещаются.
+	rows := make([][]webAppButton, 0, len(row))
+	for _, btn := range row {
+		rows = append(rows, []webAppButton{btn})
+	}
+	msg.ReplyMarkup = webAppKeyboard{InlineKeyboard: rows}
 	if _, err := b.api.Send(msg); err != nil {
 		log.Printf("bot send: %v", err)
 	}
@@ -366,7 +508,7 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 			b.send(chatID, "Это не изображение. "+sendAsFileHint)
 			return
 		}
-		delete(b.wizards, chatID)
+		b.clearWizard(chatID)
 		b.sendBouquetPhoto(chatID, w.orderID, msg.Document.FileID)
 		return
 	}
@@ -406,10 +548,10 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 	case "add":
 		b.wizardAddText(chatID, w, text)
 	case "fresh":
-		delete(b.wizards, chatID)
+		b.clearWizard(chatID)
 		b.saveFresh(chatID, text)
 	case "cancel_reason":
-		delete(b.wizards, chatID)
+		b.clearWizard(chatID)
 		updated, err := b.svc.TransitionOrder(w.orderID, model.StatusCancelled, msg.From.ID, text)
 		if err != nil {
 			b.send(chatID, "Не получилось отменить: "+err.Error())
@@ -426,7 +568,7 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 	case "edit_text":
 		p, err := b.repo.GetProduct(w.productID)
 		if err != nil {
-			delete(b.wizards, chatID)
+			b.clearWizard(chatID)
 			b.send(chatID, "Товар не найден.")
 			return
 		}
@@ -442,7 +584,7 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 			b.send(chatID, "Ошибка сохранения: "+err.Error())
 			return
 		}
-		delete(b.wizards, chatID)
+		b.clearWizard(chatID)
 		b.sendTemp(chatID, "✅ Изменения сохранены.", 5*time.Second)
 	case "edit_variants":
 		variants := parseVariants(text)
@@ -454,7 +596,7 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 			b.send(chatID, "Ошибка сохранения: "+err.Error())
 			return
 		}
-		delete(b.wizards, chatID)
+		b.clearWizard(chatID)
 		b.sendTemp(chatID, "✅ Изменения сохранены.", 5*time.Second)
 	case "edit_discount":
 		pct, err := strconv.Atoi(strings.TrimSpace(text))
@@ -466,7 +608,7 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 			b.send(chatID, "Ошибка сохранения: "+err.Error())
 			return
 		}
-		delete(b.wizards, chatID)
+		b.clearWizard(chatID)
 		if pct == 0 {
 			b.sendTemp(chatID, "✅ Скидка убрана.", 5*time.Second)
 		} else {
@@ -482,12 +624,24 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 			b.send(chatID, "Ошибка сохранения: "+err.Error())
 			return
 		}
-		delete(b.wizards, chatID)
+		b.clearWizard(chatID)
 		if n == 0 {
 			b.sendTemp(chatID, "✅ Бейдж «осталось N» скрыт.", 5*time.Second)
 		} else {
 			b.send(chatID, fmt.Sprintf("✅ Остаток %d — бейдж появится, когда ≤ 5.", n))
 		}
+	case "edit_sort":
+		n, err := strconv.Atoi(strings.TrimSpace(text))
+		if err != nil || n < 0 || n > 9999 {
+			b.send(chatID, "Нужно число от 0 до 9999. Попробуйте ещё раз или /cancel.")
+			return
+		}
+		if err := b.repo.SetProductSortOrder(w.productID, n); err != nil {
+			b.send(chatID, "Ошибка сохранения: "+err.Error())
+			return
+		}
+		b.clearWizard(chatID)
+		b.sendTemp(chatID, fmt.Sprintf("✅ Порядок в хитах: %d.", n), 5*time.Second)
 	case "edit_photos":
 		b.send(chatID, "Отправьте фото файлом (до 5 шт) или /done для завершения.")
 	}
@@ -521,7 +675,7 @@ func (b *Bot) wizardAddText(chatID int64, w *wizard, text string) {
 
 // wizardDone — /done: завершение приёма фото.
 func (b *Bot) wizardDone(chatID int64) {
-	w, ok := b.wizards[chatID]
+	w, ok := b.getWizard(chatID)
 	if !ok {
 		b.send(chatID, "Сейчас нечего завершать.")
 		return
@@ -536,7 +690,7 @@ func (b *Bot) wizardDone(chatID int64) {
 		b.send(chatID, "Шаг 3/5 — введите описание (или «-», чтобы пропустить):")
 	case w.mode == "edit_photos":
 		if len(w.draft.imageURLs) == 0 {
-			delete(b.wizards, chatID)
+			b.clearWizard(chatID)
 			b.send(chatID, "Фото не получены, оставляю как было.")
 			return
 		}
@@ -544,7 +698,7 @@ func (b *Bot) wizardDone(chatID int64) {
 			b.send(chatID, "Ошибка сохранения: "+err.Error())
 			return
 		}
-		delete(b.wizards, chatID)
+		b.clearWizard(chatID)
 		b.sendTemp(chatID, "✅ Изменения сохранены.", 5*time.Second)
 	default:
 		b.send(chatID, "Сейчас нечего завершать.")
@@ -617,7 +771,23 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	}()
 
 	chatID := cb.Message.Chat.ID
-	// Callback-кнопки тоже проверяем по whitelist: payload можно подделать.
+
+	// Кнопки диалога заказа доступны всем — это клиентский сценарий.
+	if isFallbackCallback(cb.Data) {
+		if cb.Data == "fok" {
+			var tgID int64
+			if cb.From != nil {
+				tgID = cb.From.ID
+			}
+			b.confirmFallbackOrder(chatID, tgID)
+			return
+		}
+		b.handleFallbackCallback(cb)
+		return
+	}
+
+	// Остальные callback-кнопки — админские, проверяем по whitelist:
+	// payload можно подделать.
 	if !b.isAdmin(chatID) || (cb.From != nil && !b.isAdmin(cb.From.ID)) {
 		return
 	}
@@ -634,7 +804,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 	switch action {
 	case "cat": // категория в визарде /add
-		w, ok := b.wizards[chatID]
+		w, ok := b.getWizard(chatID)
 		if !ok || w.mode != "add" || w.step != "category" {
 			return
 		}
@@ -654,7 +824,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		b.sendKb(chatID, summary, kb)
 
 	case "addok":
-		w, ok := b.wizards[chatID]
+		w, ok := b.getWizard(chatID)
 		if !ok || w.mode != "add" || w.step != "confirm" {
 			return
 		}
@@ -671,11 +841,11 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			b.send(chatID, "Ошибка сохранения: "+err.Error())
 			return
 		}
-		delete(b.wizards, chatID)
+		b.clearWizard(chatID)
 		b.send(chatID, fmt.Sprintf("✅ Товар «%s» добавлен (#%d) и уже виден в Mini App.", p.Name, p.ID))
 
 	case "addcancel":
-		delete(b.wizards, chatID)
+		b.clearWizard(chatID)
 		b.sendTemp(chatID, "Добавление отменено.", 5*time.Second)
 
 	case "edit": // выбор товара для редактирования
@@ -684,6 +854,10 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		hitLabel := "⭐ Хит: выкл"
 		if p != nil && p.IsHit {
 			hitLabel = "⭐ Хит: вкл"
+		}
+		lowLabel := "🔻 Мало осталось: выкл"
+		if p != nil && p.LowStock {
+			lowLabel = "🔻 Мало осталось: вкл"
 		}
 		kb := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
@@ -700,6 +874,10 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 				tgbotapi.NewInlineKeyboardButtonData("🏷 Скидка", fmt.Sprintf("editf:%d:disc", id)),
 				tgbotapi.NewInlineKeyboardButtonData("📦 Остаток", fmt.Sprintf("editf:%d:stock", id)),
 			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(lowLabel, fmt.Sprintf("editf:%d:low", id)),
+				tgbotapi.NewInlineKeyboardButtonData("🔢 Порядок в хитах", fmt.Sprintf("editf:%d:sort", id)),
+			),
 		)
 		b.sendKb(chatID, "Что меняем?", kb)
 
@@ -710,16 +888,16 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		}
 		switch parts[2] {
 		case "name":
-			b.wizards[chatID] = &wizard{mode: "edit_text", productID: id, field: "name"}
+			b.setWizard(chatID, &wizard{mode: "edit_text", productID: id, field: "name"})
 			b.send(chatID, "Введите новое название:")
 		case "desc":
-			b.wizards[chatID] = &wizard{mode: "edit_text", productID: id, field: "description"}
+			b.setWizard(chatID, &wizard{mode: "edit_text", productID: id, field: "description"})
 			b.send(chatID, "Введите новое описание (или «-», чтобы очистить):")
 		case "price":
-			b.wizards[chatID] = &wizard{mode: "edit_variants", productID: id}
+			b.setWizard(chatID, &wizard{mode: "edit_variants", productID: id})
 			b.send(chatID, "Введите новые варианты одной строкой.\nПример: 9 шт — 2990₽; 15 шт — 4490₽")
 		case "photo":
-			b.wizards[chatID] = &wizard{mode: "edit_photos", productID: id}
+			b.setWizard(chatID, &wizard{mode: "edit_photos", productID: id})
 			b.send(chatID, "Новые фото заменят старые (до 5 шт).\n\n"+sendAsFileHint+"\n\nКогда закончите — /done.")
 		case "cat":
 			b.sendKb(chatID, "Выберите новую категорию:", categoryKeyboard(fmt.Sprintf("editcat_%d", id)))
@@ -738,11 +916,29 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			} else {
 				b.sendTemp(chatID, "⭐ Бейдж «ХИТ» включён.", 5*time.Second)
 			}
+		case "low":
+			p, err := b.repo.GetProduct(id)
+			if err != nil {
+				b.send(chatID, "Товар не найден.")
+				return
+			}
+			if err := b.repo.SetProductLowStock(id, !p.LowStock); err != nil {
+				b.send(chatID, "Ошибка: "+err.Error())
+				return
+			}
+			if p.LowStock {
+				b.sendTemp(chatID, "🔻 Бейдж «мало осталось» убран.", 5*time.Second)
+			} else {
+				b.sendTemp(chatID, "🔻 Бейдж «мало осталось» включён.", 5*time.Second)
+			}
+		case "sort":
+			b.setWizard(chatID, &wizard{mode: "edit_sort", productID: id})
+			b.send(chatID, "Введите порядок в подборке хитов: меньше — выше (например 10). 0 — по умолчанию.")
 		case "disc":
-			b.wizards[chatID] = &wizard{mode: "edit_discount", productID: id}
+			b.setWizard(chatID, &wizard{mode: "edit_discount", productID: id})
 			b.send(chatID, "Введите процент скидки (например 10). 0 — убрать скидку.")
 		case "stock":
-			b.wizards[chatID] = &wizard{mode: "edit_stock", productID: id}
+			b.setWizard(chatID, &wizard{mode: "edit_stock", productID: id})
 			b.send(chatID, "Введите остаток для бейджа «осталось N» (например 3). 0 — скрыть бейдж.")
 		}
 
@@ -841,7 +1037,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			b.editOrderCard(chatID, cb.Message.MessageID, updated)
 			b.notifyCustomerStatus(id, next)
 		case "cancel":
-			b.wizards[chatID] = &wizard{mode: "cancel_reason", orderID: id, msgID: cb.Message.MessageID}
+			b.setWizard(chatID, &wizard{mode: "cancel_reason", orderID: id, msgID: cb.Message.MessageID})
 			reply := tgbotapi.NewMessage(chatID, fmt.Sprintf("Причина отмены заказа #%d (коротко):", id))
 			reply.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, InputFieldPlaceholder: "например: клиент передумал"}
 			if _, err := b.api.Send(reply); err != nil {
@@ -878,7 +1074,7 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			b.send(chatID, "У клиента нет Telegram ID (заказ оформлен вне Telegram) — фото отправить некому.")
 			return
 		}
-		b.wizards[chatID] = &wizard{mode: "order_photo", orderID: id}
+		b.setWizard(chatID, &wizard{mode: "order_photo", orderID: id})
 		b.send(chatID, fmt.Sprintf("📷 Фото букета для заказа #%d — отправлю его клиенту.\n\n%s\n\n/cancel — отмена.", id, sendAsFileHint))
 
 	case "noop":
@@ -1085,7 +1281,14 @@ func (b *Bot) editOrderCard(chatID int64, msgID int, o *model.Order) {
 }
 
 // NotifyNewOrder шлёт карточку нового заказа всем админам — основной рабочий поток.
+// Вызывается из горутины сервиса, поэтому сам отмечается в WaitGroup:
+// заказ, принятый до SIGTERM, обязан долететь до админа.
 func (b *Bot) NotifyNewOrder(o *model.Order) {
+	if !b.trackStart() {
+		log.Printf("бот останавливается — уведомление о заказе #%d не отправлено", o.ID)
+		return
+	}
+	defer b.trackDone()
 	for _, adminID := range b.adminIDs {
 		b.sendKb(adminID, formatOrder(o, true), adminOrderKeyboard(o))
 	}

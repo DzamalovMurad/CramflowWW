@@ -3,10 +3,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 import Header from '../components/Header';
 import Gallery from '../components/Gallery';
 import Stepper from '../components/Stepper';
+import { ProductPageSkeleton } from '../components/Skeletons';
 import { fetchProduct } from '../api';
 import { useCart } from '../cart';
 import { haptic, tg } from '../telegram';
 import { content, categoryLabels } from '../content';
+import { productBadges } from '../badges';
 import { formatPrice, discountPercent, type Product } from '../types';
 
 /** Карточка товара: галерея, варианты-чипы, количество, нижняя кнопка с суммой. */
@@ -42,11 +44,7 @@ export default function ProductPage() {
     return (
       <div>
         <Header showBack={!tg()} />
-        <div className="aspect-square animate-pulse bg-tile" />
-        <div className="space-y-3 p-5">
-          <div className="h-7 w-2/3 animate-pulse rounded bg-tile" />
-          <div className="h-4 w-full animate-pulse rounded bg-tile" />
-        </div>
+        <ProductPageSkeleton />
       </div>
     );
   }
@@ -55,7 +53,6 @@ export default function ProductPage() {
   const total = (variant?.price ?? 0) * qty;
   const totalOld = variant?.old_price ? variant.old_price * qty : 0;
   const off = discountPercent(variant?.price ?? 0, variant?.old_price);
-  const lowStock = product.stock !== undefined && product.stock > 0 && product.stock <= 5;
 
   const addToCart = () => {
     if (!variant) return;
@@ -82,9 +79,11 @@ export default function ProductPage() {
       <div className="p-5">
         <div className="flex flex-wrap items-center gap-1.5">
           <p className="label !text-[11px]">{categoryLabels[product.category] ?? product.category}</p>
-          {product.is_hit && <span className="badge badge-hit">хит</span>}
-          {off > 0 && <span className="badge badge-sale">−{off}%</span>}
-          {lowStock && <span className="badge badge-stock">осталось {product.stock}</span>}
+          {productBadges(product, off).map((b) => (
+            <span key={b.key} className={`badge ${b.cls}`}>
+              {b.label}
+            </span>
+          ))}
         </div>
         <h1 className="display mt-1.5 text-[26px]">{product.name}</h1>
         {product.description && (

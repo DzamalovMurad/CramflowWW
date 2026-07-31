@@ -10,6 +10,8 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/dzamalovmurad/cramflowww/internal/migrate"
 )
 
 // Минимальный валидный PNG 1×1 — чтобы проверить определение MIME-типа.
@@ -31,10 +33,8 @@ func TestIntegrationPostgresStorageRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("подключение к БД: %v", err)
 	}
-	st, err := NewPostgres(db, "/uploads")
-	if err != nil {
-		t.Fatalf("NewPostgres: %v", err)
-	}
+	applyMigrations(t, db)
+	st := NewPostgres(db, "/uploads")
 
 	// Снимок приходит файлом и перекодируется под витрину в JPEG (см. image.go).
 	url, err := st.Save("photo.png", bytes.NewReader(onePixelPNG))
@@ -73,11 +73,22 @@ func TestIntegrationPostgresStorageTooLarge(t *testing.T) {
 		t.Skip("TEST_DATABASE_URL не задан — интеграционный тест пропущен")
 	}
 	db, _ := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
-	st, err := NewPostgres(db, "/uploads")
-	if err != nil {
-		t.Fatalf("NewPostgres: %v", err)
-	}
+	applyMigrations(t, db)
+	st := NewPostgres(db, "/uploads")
 	if _, err := st.Save("big.jpg", bytes.NewReader(make([]byte, maxUploadBytes+10))); err == nil {
 		t.Error("ожидали отказ для файла больше лимита")
+	}
+}
+
+// applyMigrations готовит тестовую базу: таблицу uploads создаёт миграция,
+// а не конструктор хранилища.
+func applyMigrations(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db: %v", err)
+	}
+	if err := migrate.Up(sqlDB); err != nil {
+		t.Fatalf("миграции: %v", err)
 	}
 }

@@ -1,5 +1,5 @@
-import type { Order, Product, ProductCard } from './types';
-import { initDataHeader } from './telegram';
+import type { AppConfig, Order, Product, ProductCard } from './types';
+import { initDataHeader, rememberBotUsername } from './telegram';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -43,6 +43,8 @@ export function fetchAllProducts(): Promise<ProductCard[]> {
 /** Прогрев для стартового лоадера: каталог + первые фото букетов в кэш браузера. */
 export async function warmUp(): Promise<void> {
   try {
+    // Конфиг греем заодно: имя бота понадобится экрану ошибки, а он не ждёт.
+    fetchConfig().catch(() => {});
     const list = await fetchAllProducts();
     await Promise.all(
       list.slice(0, 6).map((p) =>
@@ -91,4 +93,30 @@ export function fetchMe(): Promise<{ name?: string; phone?: string; promo_code?:
 
 export function fetchFreshToday(): Promise<{ items?: string }> {
   return request('/api/fresh-today');
+}
+
+/** Подборка хитов: пустая корзина ведёт сюда, а не в никуда. */
+export function fetchHits(limit = 5): Promise<ProductCard[]> {
+  return request(`/api/products/hits?limit=${limit}`);
+}
+
+/**
+ * Конфиг развёрнутого сервиса: имя бота (нужно экрану ошибки) и признак
+ * fallback-режима. Кэшируем — значение меняется только при редеплое.
+ */
+let configCache: Promise<AppConfig> | null = null;
+
+export function fetchConfig(): Promise<AppConfig> {
+  if (!configCache) {
+    configCache = request<AppConfig>('/api/config')
+      .then((cfg) => {
+        rememberBotUsername(cfg.bot_username ?? '');
+        return cfg;
+      })
+      .catch((e) => {
+        configCache = null;
+        throw e;
+      });
+  }
+  return configCache;
 }

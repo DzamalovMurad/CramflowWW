@@ -1,12 +1,102 @@
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Header from '../components/Header';
 import Stepper from '../components/Stepper';
 import SwipeToDelete from '../components/SwipeToDelete';
+import ProductCardView from '../components/ProductCardView';
+import { ShelfSkeleton } from '../components/Skeletons';
+import { fetchHits, fetchProduct } from '../api';
 import { useCart } from '../cart';
-import { tg } from '../telegram';
+import { haptic, tg } from '../telegram';
 import { content } from '../content';
-import { formatPrice } from '../types';
+import { formatPrice, type ProductCard as ProductCardType } from '../types';
 import { IconBag, IconClose } from '../components/icons';
+
+/**
+ * EmptyCart — пустая корзина не тупик: сразу показываем пятёрку хитов
+ * (порядок задаёт sort_order в админке) и уводим в них одним тапом.
+ * Подборка грузится молча — если сети нет, остаётся обычная кнопка в каталог.
+ */
+function EmptyCart() {
+  const [hits, setHits] = useState<ProductCardType[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const { add } = useCart();
+
+  useEffect(() => {
+    let alive = true;
+    fetchHits(5)
+      .then((list) => alive && setHits(list))
+      .catch(() => alive && setFailed(true));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const addCheapest = async (card: ProductCardType) => {
+    const product = await fetchProduct(card.id);
+    const variant = product.variants[0];
+    if (!variant) return;
+    add({
+      variantId: variant.id,
+      productId: product.id,
+      productName: product.name,
+      flowersCount: variant.quantity,
+      price: variant.price,
+      image: product.images[0]?.url ?? '',
+    });
+    haptic('success');
+  };
+
+  const scrollToHits = () => {
+    haptic('light');
+    document.getElementById('cart-hits')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const hasHits = hits !== null && hits.length > 0;
+
+  return (
+    <div className="pb-24">
+      <Header title={content.cart.title} showBack={!tg()} />
+      <div className="flex flex-col items-center px-10 pb-10 pt-20 text-center">
+        <div className="animate-pop-in flex h-16 w-16 items-center justify-center rounded-full bg-tile text-muted">
+          <IconBag size={26} />
+        </div>
+        <p className="mt-5 text-[17px] font-bold lowercase">{content.cart.empty}</p>
+        <p className="mt-1 text-sm lowercase text-muted">{content.cart.emptyHint}</p>
+
+        {hasHits ? (
+          <button
+            type="button"
+            onClick={scrollToHits}
+            className="btn-accent mt-7 rounded-button px-7 py-3.5 text-sm font-bold lowercase text-on-accent"
+          >
+            {content.cart.seeHits}
+          </button>
+        ) : (
+          <Link
+            to="/catalog"
+            className="mt-7 rounded-button bg-ink px-7 py-3.5 text-sm font-bold lowercase text-page"
+          >
+            {content.cart.toCatalog}
+          </Link>
+        )}
+      </div>
+
+      {/* Подборка хитов: скелетон, пока грузится; при ошибке просто ничего. */}
+      {hits === null && !failed && <ShelfSkeleton />}
+      {hasHits && (
+        <section id="cart-hits" className="scroll-mt-4">
+          <h2 className="display px-4 pb-3 text-[22px]">{content.cart.hitsTitle}</h2>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-6 px-4">
+            {hits.map((p, i) => (
+              <ProductCardView key={p.id} product={p} index={i} onAdd={addCheapest} />
+            ))}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
 
 /** Корзина: строки с hairline-разделителями, итого, оформление. */
 export default function Cart() {
@@ -14,24 +104,7 @@ export default function Cart() {
   const navigate = useNavigate();
 
   if (items.length === 0) {
-    return (
-      <div>
-        <Header title={content.cart.title} showBack={!tg()} />
-        <div className="flex flex-col items-center px-10 py-24 text-center">
-          <div className="animate-pop-in flex h-16 w-16 items-center justify-center rounded-full bg-tile text-muted">
-            <IconBag size={26} />
-          </div>
-          <p className="mt-5 text-[17px] font-bold lowercase">{content.cart.empty}</p>
-          <p className="mt-1 text-sm lowercase text-muted">{content.cart.emptyHint}</p>
-          <Link
-            to="/catalog"
-            className="mt-7 rounded-button bg-ink px-7 py-3.5 text-sm font-bold lowercase text-page"
-          >
-            {content.cart.toCatalog}
-          </Link>
-        </div>
-      </div>
-    );
+    return <EmptyCart />;
   }
 
   return (
@@ -48,7 +121,15 @@ export default function Cart() {
               <Link to={`/product/${item.productId}`} className="flex-shrink-0">
                 <div className="h-[88px] w-[72px] overflow-hidden rounded-card bg-tile">
                   {item.image && (
-                    <img src={item.image} alt={item.productName} className="h-full w-full object-cover" />
+                    <img
+                      src={item.image}
+                      alt={item.productName}
+                      loading="lazy"
+                      decoding="async"
+                      width={72}
+                      height={88}
+                      className="h-full w-full object-cover"
+                    />
                   )}
                 </div>
               </Link>

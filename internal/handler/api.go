@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dzamalovmurad/cramflowww/internal/model"
+	"github.com/dzamalovmurad/cramflowww/internal/observability"
 	"github.com/dzamalovmurad/cramflowww/internal/repository"
 	"github.com/dzamalovmurad/cramflowww/internal/service"
 	"github.com/dzamalovmurad/cramflowww/internal/storage"
@@ -25,24 +26,52 @@ type API struct {
 	Uploads   *storage.Postgres // если задан — фото берутся из БД, а не с диска
 	WebDist   string            // собранный фронтенд
 
+	// Health — зависимости для /healthz (БД и Bot API).
+	Health Healthchecker
+	// BotUsername — для кнопки «открыть чат с ботом» в экране ошибки Mini App.
+	BotUsername string
+	// AppURL — публичный адрес Mini App. Пустой = витрина работает только
+	// через бота, фронтенд об этом узнаёт из /api/config.
+	AppURL string
+
 	// Webhook бота: заполняются, только если BOT_MODE=webhook.
 	WebhookPath    string
 	WebhookHandler http.HandlerFunc
+
+	limiters *rateLimiters
+	botPing  botPingCache
 }
 
 func (a *API) Routes() http.Handler {
-	mux := http.NewServeMux()
+	if a.limiters == nil {
+		a.limiters = newRateLimiters()
+	}
 
-	mux.HandleFunc("GET /api/products", a.listProducts)
-	mux.HandleFunc("GET /api/products/{id}", a.getProduct)
-	mux.HandleFunc("POST /api/orders", a.createOrder)
-	mux.HandleFunc("GET /api/orders/{id}", a.getOrder)
-	mux.HandleFunc("GET /api/promo/{code}", a.getPromo)
-	mux.HandleFunc("GET /api/me", a.getMe)
-	mux.HandleFunc("GET /api/fresh-today", a.getFreshToday)
-	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
+	// Клиентский API — под лимитером: один пользователь не должен выжимать
+	// пул соединений к Postgres.
+	api := http.NewServeMux()
+	api.HandleFunc("GET /api/products", a.listProducts)
+	api.HandleFunc("GET /api/products/hits", a.listHits)
+	api.HandleFunc("GET /api/products/{id}", a.getProduct)
+	api.HandleFunc("POST /api/orders", a.createOrder)
+	api.HandleFunc("GET /api/orders/{id}", a.getOrder)
+	api.HandleFunc("GET /api/promo/{code}", a.getPromo)
+	api.HandleFunc("GET /api/me", a.getMe)
+	api.HandleFunc("GET /api/fresh-today", a.getFreshToday)
+	api.HandleFunc("GET /api/config", a.getConfig)
+	// Лёгкая проба живости: БД не трогает — по ней keepalive будит контейнер,
+	// не мешая serverless-Postgres спать. Глубокая проверка — в /healthz.
+	api.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+
+	mux := http.NewServeMux()
+	mux.Handle("/api/", a.withRateLimit(api))
+
+	// Healthcheck Railway: без лимитера — иначе проба сама себя заблокирует.
+	if a.Health != nil {
+		mux.HandleFunc("GET /healthz", a.healthz)
+	}
 
 	if a.Uploads != nil {
 		mux.HandleFunc("GET /uploads/{file}", a.serveUpload)
@@ -59,7 +88,7 @@ func (a *API) Routes() http.Handler {
 	// SPA: отдаём статику, для остальных путей — index.html.
 	mux.HandleFunc("/", a.serveSPA)
 
-	return mux
+	return withObservability(mux)
 }
 
 // productCard — карточка каталога: минимальная цена, первое фото, бейджи.
@@ -71,7 +100,29 @@ type productCard struct {
 	OldPrice int    `json:"old_price,omitempty"` // старая цена минимального варианта
 	Image    string `json:"image"`
 	IsHit    bool   `json:"is_hit"`
-	Stock    int    `json:"stock,omitempty"` // остаток для бейджа «осталось N»
+	LowStock bool   `json:"low_stock,omitempty"` // ручной бейдж «мало осталось»
+	Seasonal bool   `json:"seasonal,omitempty"`  // товар есть в «сегодня на базе»
+	Stock    int    `json:"stock,omitempty"`     // остаток для бейджа «осталось N»
+}
+
+func (a *API) card(p *model.Product, seasonal []string) productCard {
+	card := productCard{
+		ID:       p.ID,
+		Name:     p.Name,
+		Category: p.Category,
+		IsHit:    p.IsHit,
+		LowStock: p.LowStock,
+		Stock:    p.Stock,
+		Seasonal: repository.IsSeasonal(p.Name, seasonal),
+	}
+	if len(p.Variants) > 0 {
+		card.Price = p.Variants[0].Price // варианты отсортированы по цене
+		card.OldPrice = p.Variants[0].OldPrice
+	}
+	if len(p.Images) > 0 {
+		card.Image = p.Images[0].URL
+	}
+	return card
 }
 
 func (a *API) listProducts(w http.ResponseWriter, r *http.Request) {
@@ -85,19 +136,41 @@ func (a *API) listProducts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	seasonal := a.Repo.SeasonalNames(time.Now().Format("2006-01-02"))
 	cards := make([]productCard, 0, len(products))
-	for _, p := range products {
-		card := productCard{ID: p.ID, Name: p.Name, Category: p.Category, IsHit: p.IsHit, Stock: p.Stock}
-		if len(p.Variants) > 0 {
-			card.Price = p.Variants[0].Price // варианты отсортированы по цене
-			card.OldPrice = p.Variants[0].OldPrice
-		}
-		if len(p.Images) > 0 {
-			card.Image = p.Images[0].URL
-		}
-		cards = append(cards, card)
+	for i := range products {
+		cards = append(cards, a.card(&products[i], seasonal))
 	}
 	writeJSON(w, http.StatusOK, cards)
+}
+
+// listHits — подборка хитов (пустая корзина в Mini App). Порядок — sort_order.
+func (a *API) listHits(w http.ResponseWriter, r *http.Request) {
+	limit := 5
+	if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v > 0 && v <= 20 {
+		limit = v
+	}
+	products, err := a.Repo.TopHits(limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "не удалось загрузить подборку")
+		return
+	}
+	seasonal := a.Repo.SeasonalNames(time.Now().Format("2006-01-02"))
+	cards := make([]productCard, 0, len(products))
+	for i := range products {
+		cards = append(cards, a.card(&products[i], seasonal))
+	}
+	writeJSON(w, http.StatusOK, cards)
+}
+
+// getConfig — то, что фронтенду нужно знать о развёрнутом сервисе:
+// куда вести пользователя, если Mini App упал, и включён ли заказ через бота.
+func (a *API) getConfig(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"bot_username":    a.BotUsername,
+		"fallback_orders": fallbackOrdersOn(a.Repo, a.AppURL),
+		"mini_app_url":    a.AppURL,
+	})
 }
 
 func (a *API) getProduct(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +184,12 @@ func (a *API) getProduct(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "товар не найден")
 		return
 	}
-	writeJSON(w, http.StatusOK, p)
+	// Сезонность вычисляется из «сегодня на базе», в самом товаре её нет.
+	seasonal := a.Repo.SeasonalNames(time.Now().Format("2006-01-02"))
+	writeJSON(w, http.StatusOK, struct {
+		*model.Product
+		Seasonal bool `json:"seasonal"`
+	}{p, repository.IsSeasonal(p.Name, seasonal)})
 }
 
 func (a *API) createOrder(w http.ResponseWriter, r *http.Request) {
@@ -129,7 +207,11 @@ func (a *API) createOrder(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, ve.Msg)
 			return
 		}
-		log.Printf("create order: %v", err)
+		observability.CaptureError(err, map[string]string{
+			"component":  "api",
+			"op":         "create_order",
+			"request_id": observability.RequestID(r.Context()),
+		})
 		writeError(w, http.StatusInternalServerError, "не удалось создать заказ")
 		return
 	}
