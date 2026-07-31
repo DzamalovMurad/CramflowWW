@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { CartItem } from './types';
+import { checkCart, touchCart } from './api';
 
 const STORAGE_KEY = 'cramflow_cart_v1';
 
@@ -11,6 +12,10 @@ interface CartState {
   setQty: (variantId: number, qty: number) => void;
   remove: (variantId: number) => void;
   clear: () => void;
+  /** variantId позиций, которые больше нельзя заказать (сняты с наличия). */
+  unavailable: number[];
+  /** Сверить состав корзины с каталогом. Зовётся при открытии корзины и checkout. */
+  revalidate: () => Promise<number[]>;
 }
 
 const CartContext = createContext<CartState | null>(null);
@@ -25,6 +30,7 @@ function load(): CartItem[] {
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>(load);
+  const [unavailable, setUnavailable] = useState<number[]>([]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
@@ -40,6 +46,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       }
       return [...prev, { ...item, qty }];
     });
+    touchCart(); // сегмент рассылки «корзина без заказа»
   }, []);
 
   const setQty = useCallback((variantId: number, qty: number) => {
@@ -54,13 +61,39 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setItems((prev) => prev.filter((i) => i.variantId !== variantId));
   }, []);
 
-  const clear = useCallback(() => setItems([]), []);
+  const clear = useCallback(() => {
+    setItems([]);
+    setUnavailable([]);
+  }, []);
+
+  const revalidate = useCallback(async () => {
+    const ids = items.map((i) => i.variantId);
+    if (ids.length === 0) {
+      setUnavailable([]);
+      return [];
+    }
+    try {
+      const { unavailable: gone } = await checkCart(ids);
+      setUnavailable(gone);
+      return gone;
+    } catch {
+      // Сеть отвалилась — не блокируем корзину: состав всё равно проверяется
+      // на сервере при оформлении, недоступный товар туда не пройдёт.
+      setUnavailable([]);
+      return [];
+    }
+  }, [items]);
 
   const value = useMemo<CartState>(() => {
-    const total = items.reduce((sum, i) => sum + i.price * i.qty, 0);
+    // Недоступные позиции не участвуют в сумме: клиент заплатит за то,
+    // что реально уедет, а не за строку, которую его просят удалить.
+    const total = items.reduce(
+      (sum, i) => (unavailable.includes(i.variantId) ? sum : sum + i.price * i.qty),
+      0,
+    );
     const count = items.reduce((sum, i) => sum + i.qty, 0);
-    return { items, total, count, add, setQty, remove, clear };
-  }, [items, add, setQty, remove, clear]);
+    return { items, total, count, add, setQty, remove, clear, unavailable, revalidate };
+  }, [items, add, setQty, remove, clear, unavailable, revalidate]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

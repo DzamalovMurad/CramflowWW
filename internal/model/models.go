@@ -73,8 +73,12 @@ type Product struct {
 	Description string `json:"description"`
 	Category    string `gorm:"not null;index" json:"category"`
 	IsHidden    bool   `gorm:"not null;default:false;index" json:"is_hidden"`
-	IsHit       bool   `gorm:"not null;default:false" json:"is_hit"` // бейдж «ХИТ»
-	Stock       int    `gorm:"not null;default:0" json:"stock"`      // остаток (0 = не показывать «осталось N»)
+	// IsAvailable — оперативное «есть/нет в наличии» (/stock в боте).
+	// Отдельный от IsHidden флаг: IsHidden — сезонное решение «убрать с витрины»,
+	// IsAvailable — сегодняшняя закупка. Витрина требует обоих: показан и в наличии.
+	IsAvailable bool `gorm:"not null;default:true;index" json:"is_available"`
+	IsHit       bool `gorm:"not null;default:false" json:"is_hit"` // бейдж «ХИТ»
+	Stock       int  `gorm:"not null;default:0" json:"stock"`      // остаток (0 = не показывать «осталось N»)
 	// LowStock — ручной бейдж «мало осталось»: флорист видит остаток на базе,
 	// но пересчитывать штуки в Stock ему лень. Ставится тумблером в /edit.
 	LowStock bool `gorm:"not null;default:false" json:"low_stock"`
@@ -115,22 +119,35 @@ type User struct {
 	// Промокод, полученный по deep-link t.me/bot?start=CODE.
 	PromoCodeID *uint      `json:"promo_code_id,omitempty"`
 	PromoCode   *PromoCode `json:"promo_code,omitempty"`
+	// BotBlocked — клиент заблокировал бота (Telegram вернул 403 при рассылке).
+	// Такие адресаты исключаются из следующих рассылок, чтобы не жечь лимиты.
+	BotBlocked bool `gorm:"not null;default:false;index" json:"bot_blocked"`
+	// LastCartAt — последняя активность в корзине Mini App (POST /api/cart/touch).
+	// По ней собирается сегмент «корзина без заказа».
+	LastCartAt *time.Time `gorm:"index" json:"last_cart_at,omitempty"`
+	CreatedAt  time.Time  `gorm:"index" json:"created_at"`
 }
 
 type Order struct {
-	ID              uint      `gorm:"primaryKey" json:"id"`
-	UserID          uint      `gorm:"not null;index;index:idx_orders_user_status" json:"user_id"`
-	TotalPrice      int       `gorm:"not null" json:"total_price"`
-	DeliveryAddress string    `gorm:"not null" json:"delivery_address"`
-	DeliveryDate    string    `gorm:"not null;index:idx_orders_status_ddate" json:"delivery_date"`
-	DeliveryTime    string    `gorm:"not null" json:"delivery_time"`
-	PromoCodeID     *uint     `json:"promo_code_id,omitempty"`
-	Comment         string    `json:"comment"`
-	CardText        string    `json:"card_text"`     // текст открытки (до 300 символов)
-	IsAnonymous     bool      `json:"is_anonymous"`  // анонимная доставка
-	CancelReason    string    `json:"cancel_reason"` // причина отмены (обязательна при отмене админом)
-	Status          string    `gorm:"not null;default:new;index;index:idx_orders_status_ddate,priority:1;index:idx_orders_user_status,priority:2" json:"status"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID              uint   `gorm:"primaryKey" json:"id"`
+	UserID          uint   `gorm:"not null;index;index:idx_orders_user_status" json:"user_id"`
+	TotalPrice      int    `gorm:"not null" json:"total_price"`
+	DeliveryAddress string `gorm:"not null" json:"delivery_address"`
+	DeliveryDate    string `gorm:"not null;index:idx_orders_status_ddate" json:"delivery_date"`
+	DeliveryTime    string `gorm:"not null" json:"delivery_time"`
+	PromoCodeID     *uint  `json:"promo_code_id,omitempty"`
+	Comment         string `json:"comment"`
+	CardText        string `json:"card_text"`     // текст открытки (до 300 символов)
+	IsAnonymous     bool   `json:"is_anonymous"`  // анонимная доставка
+	CancelReason    string `json:"cancel_reason"` // причина отмены (обязательна при отмене админом)
+	// Получатель, если букет везут не заказчику (в CSV-выгрузке — отдельные колонки).
+	RecipientName  string `json:"recipient_name"`
+	RecipientPhone string `json:"recipient_phone"`
+	// Source — канал привлечения: normalizeSource() из start_param Mini App
+	// или ?src= в ссылке. Пусто не бывает — по умолчанию SourceDirect.
+	Source    string    `gorm:"not null;default:direct;index:idx_orders_created_source,priority:2" json:"source"`
+	Status    string    `gorm:"not null;default:new;index;index:idx_orders_status_ddate,priority:1;index:idx_orders_user_status,priority:2;index:idx_orders_created_status,priority:2" json:"status"`
+	CreatedAt time.Time `gorm:"index:idx_orders_created_status,priority:1;index:idx_orders_created_source,priority:1" json:"created_at"`
 
 	User      User        `json:"user"`
 	PromoCode *PromoCode  `json:"promo_code,omitempty"`

@@ -4,6 +4,7 @@ import Header from '../components/Header';
 import { checkPromo, createOrder, fetchMe } from '../api';
 import { useCart } from '../cart';
 import { haptic, tg } from '../telegram';
+import { currentSource } from '../source';
 import { content } from '../content';
 import { DELIVERY_MODES, formatPrice, type DeliveryMode } from '../types';
 import { IconCheck } from '../components/icons';
@@ -28,12 +29,14 @@ function Field({ label, optional, children }: { label: string; optional?: string
 
 /** Оформление заказа: контакты, адрес, дата/время, комментарий, промокод. */
 export default function Checkout() {
-  const { items, total, clear } = useCart();
+  const { items, total, clear, revalidate } = useCart();
   const navigate = useNavigate();
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
+  const [recipientName, setRecipientName] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
   const [date, setDate] = useState('');
   const [mode, setMode] = useState<DeliveryMode | ''>('');
   const [timeAt, setTimeAt] = useState(''); // HH:MM для режима «ко времени»
@@ -95,6 +98,15 @@ export default function Checkout() {
     setError('');
     setSubmitting(true);
     try {
+      // Букет мог уйти из наличия, пока заполняли форму: лучше вернуть в
+      // корзину с понятной пометкой, чем показать отказ сервера на отправке.
+      const gone = await revalidate();
+      if (gone.length > 0) {
+        setError(c.unavailable);
+        setSubmitting(false);
+        navigate('/cart');
+        return;
+      }
       const order = await createOrder({
         items: items.map((i) => ({ variant_id: i.variantId, quantity: i.qty })),
         name,
@@ -107,6 +119,9 @@ export default function Checkout() {
         is_anonymous: isAnonymous,
         // Промокод из deep-link сервер применит сам по initData.
         promo_code: promoSource === 'form' && promo ? promo.code : '',
+        recipient_name: recipientName,
+        recipient_phone: recipientPhone,
+        source: currentSource(),
       });
       clear();
       haptic('success');
@@ -153,6 +168,30 @@ export default function Checkout() {
             required
           />
         </Field>
+
+        <Field label={c.recipientName} optional={c.recipientOptional}>
+          <input
+            className={inputCls}
+            value={recipientName}
+            onChange={(e) => setRecipientName(e.target.value)}
+            placeholder={c.recipientNamePlaceholder}
+          />
+        </Field>
+
+        {recipientName.trim() !== '' && (
+          <div className="animate-fade-in">
+            <Field label={c.recipientPhone} optional={c.commentOptional}>
+              <input
+                className={inputCls}
+                type="tel"
+                inputMode="tel"
+                value={recipientPhone}
+                onChange={(e) => setRecipientPhone(e.target.value)}
+                placeholder={c.recipientPhonePlaceholder}
+              />
+            </Field>
+          </div>
+        )}
 
         <Field label={c.date}>
           <input

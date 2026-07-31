@@ -77,6 +77,30 @@ export interface OrderPayload {
   card_text: string;
   is_anonymous: boolean;
   promo_code: string;
+  recipient_name: string;
+  recipient_phone: string;
+  source: string;
+}
+
+/**
+ * Какие позиции корзины больше нельзя заказать. Корзина лежит в localStorage
+ * и переживает снятие букета с наличия, поэтому перед показом корзины и перед
+ * оформлением состав сверяется с бэкендом.
+ */
+export function checkCart(variantIds: number[]): Promise<{ unavailable: number[] }> {
+  return request('/api/cart/check', {
+    method: 'POST',
+    body: JSON.stringify({ variant_ids: variantIds }),
+  });
+}
+
+/** Отметка активности в корзине — для сегмента рассылки «корзина без заказа». */
+export function touchCart(): void {
+  // Фоновая телеметрия: не мешаем пользователю ни ожиданием, ни ошибкой.
+  fetch('/api/cart/touch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...initDataHeader() },
+  }).catch(() => {});
 }
 
 export function createOrder(payload: OrderPayload): Promise<Order> {

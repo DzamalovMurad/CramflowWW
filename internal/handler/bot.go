@@ -48,6 +48,10 @@ type Bot struct {
 	msgLog map[int64][]int
 	logMu  sync.Mutex
 
+	// Рассылки идут строго по одной: лимит Telegram общий с уведомлениями
+	// о заказах, и две параллельные упёрлись бы в 429.
+	bcastMu sync.Mutex
+
 	// Учёт незавершённых отправок для graceful shutdown: по SIGTERM сервис
 	// перестаёт принимать апдейты и ждёт, пока начатые ответы уйдут клиенту.
 	inflight sync.WaitGroup
@@ -154,12 +158,13 @@ func (b *Bot) isAdmin(id int64) bool {
 }
 
 type wizard struct {
-	mode      string // add | edit_text | edit_variants | edit_photos | edit_discount | edit_stock | fresh | order_photo | cancel_reason
+	mode      string // add | edit_text | edit_variants | edit_photos | edit_discount | edit_stock | fresh | order_photo | cancel_reason | broadcast_content
 	step      string // для add: name → photos → desc → variants → category → confirm
 	productID uint   // для edit
 	orderID   uint   // для order_photo / cancel_reason
 	msgID     int    // сообщение-карточка, которое редактируем после действия
 	field     string // name | description
+	segment   string // для broadcast_content: выбранный сегмент аудитории
 	draft     draft
 }
 
@@ -329,10 +334,14 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 				"/orders — заказы по статусам\n"+
 				"/preorders — 📅 предзаказы (доставка позже сегодня)\n"+
 				"/clients <имя или телефон> — база клиентов\n"+
+				"/stats — 📊 сводка за период\n"+
 				"/add — добавить товар\n"+
 				"/edit — изменить товар\n"+
+				"/stock — 📦 наличие товаров\n"+
 				"/hide — скрыть/показать товар\n"+
 				"/delete — удалить товар\n"+
+				"/broadcast — 📣 рассылка по клиентам\n"+
+				"/export — 📄 выгрузка заказов в CSV\n"+
 				"/fresh — что сегодня свежее на базе\n"+
 				"/fallback on|off — заказ через диалог бота (если Mini App лежит)\n"+
 				"/backup — 💾 выгрузить дамп БД прямо сейчас\n"+
@@ -369,6 +378,14 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 			b.sendProductList(msg.Chat.ID, "Какой товар скрыть/показать?", "hide")
 		case "delete":
 			b.sendProductList(msg.Chat.ID, "Какой товар удалить?", "del")
+		case "stock":
+			b.sendStock(msg.Chat.ID)
+		case "stats":
+			b.sendStats(msg.Chat.ID)
+		case "broadcast":
+			b.sendBroadcastSegments(msg.Chat.ID)
+		case "export":
+			b.sendExportMenu(msg.Chat.ID)
 		case "orders":
 			b.sendStatusFilter(msg.Chat.ID)
 		case "preorders":
@@ -398,6 +415,14 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 // handleCustomer — не-админ: deep-link промокоды, кнопка Mini App
 // и заказ диалогом, если Mini App недоступен.
 func (b *Bot) handleCustomer(msg *tgbotapi.Message) {
+	// Регистрируем всех, кто написал боту: сегмент «Все» в /broadcast обещает
+	// именно это. Имя и телефон не заполняем — они точнее приходят из checkout.
+	if msg.From != nil {
+		if _, err := b.repo.UpsertUser(msg.From.ID, "", ""); err != nil {
+			log.Printf("upsert user: %v", err)
+		}
+	}
+
 	if msg.IsCommand() {
 		switch msg.Command() {
 		case "order":
@@ -495,6 +520,13 @@ func parseVariants(s string) []model.ProductVariant {
 
 func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 	chatID := msg.Chat.ID
+
+	// Рассылка принимает и сжатое фото, и текст — разбираем её раньше общих
+	// правил приёма фото, которые защищают качество витрины.
+	if w.mode == "broadcast_content" {
+		b.broadcastContent(msg, w)
+		return
+	}
 
 	// Сжатое фото не принимаем: Telegram ужимает его до ~1280px, на витрине это мыло.
 	if len(msg.Photo) > 0 {
@@ -996,6 +1028,51 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			return
 		}
 		b.sendTemp(chatID, "🗑 Товар убран из каталога.", 5*time.Second)
+
+	case "st": // st:<period> — отчёт /stats за период, правим то же сообщение
+		if len(parts) < 2 {
+			return
+		}
+		text, kb := b.buildStats(parts[1])
+		b.editKb(chatID, cb.Message.MessageID, text, kb)
+
+	case "stk": // stk:<productID>:<page> — переключить наличие товара
+		if len(parts) < 3 {
+			return
+		}
+		b.toggleStock(chatID, cb.Message.MessageID, argAt(1), int(argAt(2)))
+
+	case "stkpg": // stkpg:<page> — страница списка наличия
+		b.renderStockPage(chatID, cb.Message.MessageID, int(argAt(1)))
+
+	case "bcseg": // bcseg:<segment> — выбран сегмент рассылки
+		if len(parts) < 2 {
+			return
+		}
+		if _, ok := model.SegmentLabels[parts[1]]; !ok {
+			return
+		}
+		b.startBroadcastContent(chatID, parts[1])
+
+	case "bc": // bc:<id>:go|no — подтверждение или отмена рассылки
+		if len(parts) < 3 {
+			return
+		}
+		switch parts[2] {
+		case "go":
+			b.confirmBroadcast(chatID, cb.Message.MessageID, argAt(1))
+		case "no":
+			b.cancelBroadcast(chatID, cb.Message.MessageID, argAt(1))
+		}
+
+	case "exp": // exp:<period> — CSV-выгрузка заказов
+		if len(parts) < 2 {
+			return
+		}
+		if _, ok := exportLabels[parts[1]]; !ok {
+			return
+		}
+		b.sendExport(chatID, parts[1])
 
 	case "pg": // pg:<status>:<page> — страница заказов, редактируем сообщение на месте
 		if len(parts) < 3 {

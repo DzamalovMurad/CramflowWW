@@ -62,8 +62,22 @@ type OrderInput struct {
 	CardText        string           `json:"card_text"`    // текст открытки, до 300 символов
 	IsAnonymous     bool             `json:"is_anonymous"` // анонимная доставка
 	PromoCode       string           `json:"promo_code"`
+	RecipientName   string           `json:"recipient_name"` // если букет везут не заказчику
+	RecipientPhone  string           `json:"recipient_phone"`
+	// Source — канал привлечения из Mini App (start_param / ?src=).
+	// Значение клиентское, поэтому нормализуется перед записью.
+	Source string `json:"source"`
 	// TelegramID заполняется хендлером из initData, не клиентом.
 	TelegramID int64 `json:"-"`
+}
+
+// productLabel — имя товара для сообщения об ошибке. Если товар не читается,
+// клиенту незачем видеть «product 17» — обходимся обезличенным «товар».
+func productLabel(p *model.Product, err error) string {
+	if err != nil || p == nil || p.Name == "" {
+		return "товар"
+	}
+	return p.Name
 }
 
 type ValidationError struct{ Msg string }
@@ -83,6 +97,8 @@ func (s *Service) CreateOrder(in OrderInput) (*model.Order, error) {
 	in.DeliveryDate = strings.TrimSpace(in.DeliveryDate)
 	in.Comment = strings.TrimSpace(in.Comment)
 	in.CardText = strings.TrimSpace(in.CardText)
+	in.RecipientName = strings.TrimSpace(in.RecipientName)
+	in.RecipientPhone = strings.TrimSpace(in.RecipientPhone)
 	if len([]rune(in.CardText)) > 300 {
 		return nil, invalid("текст открытки — не более 300 символов")
 	}
@@ -126,8 +142,8 @@ func (s *Service) CreateOrder(in OrderInput) (*model.Order, error) {
 			return nil, err
 		}
 		product, err := s.Repo.GetProduct(variant.ProductID)
-		if err != nil || product.IsHidden {
-			return nil, invalid("товар из корзины больше недоступен")
+		if err != nil || product.IsHidden || !product.IsAvailable {
+			return nil, invalid("«%s» больше недоступен — удалите его из корзины", productLabel(product, err))
 		}
 		total += variant.Price * it.Quantity
 		items = append(items, model.OrderItem{
@@ -168,6 +184,9 @@ func (s *Service) CreateOrder(in OrderInput) (*model.Order, error) {
 		Comment:         in.Comment,
 		CardText:        in.CardText,
 		IsAnonymous:     in.IsAnonymous,
+		RecipientName:   in.RecipientName,
+		RecipientPhone:  in.RecipientPhone,
+		Source:          model.NormalizeSource(in.Source),
 		Status:          model.StatusNew,
 		Items:           items,
 	}

@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/dzamalovmurad/cramflowww/internal/migrate"
 	"github.com/dzamalovmurad/cramflowww/internal/model"
 )
 
@@ -26,11 +27,14 @@ func testRepo(t *testing.T) *Repository {
 	if err != nil {
 		t.Fatalf("подключение к тестовой БД: %v", err)
 	}
-	if err := db.AutoMigrate(
-		&model.Product{}, &model.ProductVariant{}, &model.ProductImage{},
-		&model.PromoCode{}, &model.User{}, &model.Order{}, &model.OrderItem{},
-		&model.FreshToday{}, &model.OrderStatusLog{},
-	); err != nil {
+	// Схему поднимаем теми же миграциями, что и прод: тест, который проверяет
+	// репозиторий на схеме от AutoMigrate, ничего не сказал бы о том, работает
+	// ли код на реальной базе.
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("пул соединений: %v", err)
+	}
+	if err := migrate.Up(sqlDB); err != nil {
 		t.Fatalf("миграции: %v", err)
 	}
 	// Чистое состояние перед каждым тестом.
