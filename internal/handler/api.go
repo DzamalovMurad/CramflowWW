@@ -37,6 +37,8 @@ func (a *API) Routes() http.Handler {
 	mux.HandleFunc("GET /api/products/{id}", a.getProduct)
 	mux.HandleFunc("POST /api/orders", a.createOrder)
 	mux.HandleFunc("GET /api/orders/{id}", a.getOrder)
+	mux.HandleFunc("POST /api/cart/check", a.checkCart)
+	mux.HandleFunc("POST /api/cart/touch", a.touchCart)
 	mux.HandleFunc("GET /api/promo/{code}", a.getPromo)
 	mux.HandleFunc("GET /api/me", a.getMe)
 	mux.HandleFunc("GET /api/fresh-today", a.getFreshToday)
@@ -107,7 +109,7 @@ func (a *API) getProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, err := a.Repo.GetProduct(uint(id))
-	if err != nil || p.IsHidden {
+	if err != nil || p.IsHidden || !p.IsAvailable {
 		writeError(w, http.StatusNotFound, "товар не найден")
 		return
 	}
@@ -154,6 +156,46 @@ func (a *API) getOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, order)
+}
+
+// checkCart — какие позиции корзины больше нельзя заказать. Корзина живёт в
+// localStorage браузера и легко переживает снятие товара с наличия, поэтому
+// Mini App сверяется с бэкендом при открытии корзины и перед оформлением.
+func (a *API) checkCart(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		VariantIDs []uint `json:"variant_ids"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "некорректный запрос")
+		return
+	}
+	// Ограничение на размер корзины: защита от запроса с тысячей id.
+	if len(in.VariantIDs) > 100 {
+		in.VariantIDs = in.VariantIDs[:100]
+	}
+
+	unavailable, err := a.Repo.UnavailableVariants(in.VariantIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "не удалось проверить корзину")
+		return
+	}
+	if unavailable == nil {
+		unavailable = []uint{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"unavailable": unavailable})
+}
+
+// touchCart — отметка активности в корзине для сегмента рассылки
+// «корзина без заказа». Пишем только для известного пользователя Telegram.
+func (a *API) touchCart(w http.ResponseWriter, r *http.Request) {
+	tgID := telegramUserID(r.Header.Get("X-Telegram-Init-Data"), a.BotToken)
+	if tgID != 0 {
+		if err := a.Repo.TouchCart(tgID); err != nil {
+			log.Printf("touch cart: %v", err)
+		}
+	}
+	// Ответ всегда 200: это фоновая телеметрия, она не должна ломать корзину.
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // getPromo — проверка промокода из формы checkout (показать скидку до оформления).

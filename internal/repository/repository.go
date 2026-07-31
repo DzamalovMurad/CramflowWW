@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,19 @@ type Repository struct {
 }
 
 const catalogTTL = 5 * time.Minute
+
+// catalogVisible — единственное определение «товар виден на витрине»:
+// не скрыт сезонно, есть в наличии, не удалён. Используется всеми выборками
+// каталога, чтобы /stock мгновенно убирал товар отовсюду, а не из одного места.
+// Под это условие заведён частичный индекс idx_products_catalog (миграция 003).
+const catalogVisible = "is_hidden = FALSE AND is_available = TRUE AND archived_at IS NULL"
+
+// catalogVisibleOn — то же условие с явным алиасом таблицы. Нужен в запросах
+// с JOIN: archived_at есть и у products, и у product_variants, без префикса
+// Postgres справедливо ругается на неоднозначную колонку.
+func catalogVisibleOn(alias string) string {
+	return fmt.Sprintf("%[1]s.is_hidden = FALSE AND %[1]s.is_available = TRUE AND %[1]s.archived_at IS NULL", alias)
+}
 
 func New(db *gorm.DB) *Repository {
 	return &Repository{DB: db}
@@ -47,7 +61,7 @@ func (r *Repository) visibleProducts() ([]model.Product, error) {
 	err := r.DB.Preload("Variants", func(db *gorm.DB) *gorm.DB {
 		return db.Where("archived_at IS NULL").Order("price ASC")
 	}).Preload("Images").
-		Where("is_hidden = ? AND archived_at IS NULL", false).
+		Where(catalogVisible).
 		Order("created_at DESC").
 		Find(&products).Error
 	if err != nil {
@@ -115,7 +129,7 @@ func (r *Repository) ListProducts(category, filter, search string) ([]model.Prod
 func (r *Repository) listPopular(category, search string) ([]model.Product, error) {
 	q := r.DB.Preload("Variants", func(db *gorm.DB) *gorm.DB {
 		return db.Where("archived_at IS NULL").Order("price ASC")
-	}).Preload("Images").Where("is_hidden = ? AND archived_at IS NULL", false)
+	}).Preload("Images").Where(catalogVisible)
 	if category != "" {
 		q = q.Where("category = ?", category)
 	}
@@ -227,6 +241,80 @@ func (r *Repository) ReplaceImages(productID uint, urls []string) error {
 func (r *Repository) SetProductHidden(id uint, hidden bool) error {
 	defer r.InvalidateCatalog()
 	return r.DB.Model(&model.Product{}).Where("id = ?", id).Update("is_hidden", hidden).Error
+}
+
+// SetProductAvailable — «есть/нет в наличии» из /stock. Сбрасывает кэш витрины,
+// поэтому товар пропадает из Mini App сразу, а не через TTL.
+// Прошлые заказы не трогает: они читаются через order_items, а не через каталог.
+func (r *Repository) SetProductAvailable(id uint, available bool) error {
+	defer r.InvalidateCatalog()
+	res := r.DB.Model(&model.Product{}).Where("id = ?", id).
+		Update("is_available", available)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+// CountLiveProducts — сколько товаров показывает /stock (для пагинации).
+func (r *Repository) CountLiveProducts() (int64, error) {
+	var n int64
+	err := r.DB.Model(&model.Product{}).Where("archived_at IS NULL").Count(&n).Error
+	return n, err
+}
+
+// ListProductsPage — страница товаров для /stock: без вариантов и фото,
+// боту нужны только имя и флаги. Порядок стабильный, иначе товар прыгает
+// между страницами после переключения наличия.
+func (r *Repository) ListProductsPage(page, per int) ([]model.Product, error) {
+	if page < 1 {
+		page = 1
+	}
+	var products []model.Product
+	err := r.DB.Where("archived_at IS NULL").
+		Order("id DESC").
+		Limit(per).Offset((page - 1) * per).
+		Find(&products).Error
+	return products, err
+}
+
+// UnavailableVariants — какие из переданных вариантов больше нельзя заказать
+// (товар скрыт, снят с наличия или удалён, либо сам вариант архивирован).
+// Один запрос на всю корзину — Mini App зовёт его перед оформлением.
+func (r *Repository) UnavailableVariants(variantIDs []uint) ([]uint, error) {
+	if len(variantIDs) == 0 {
+		return nil, nil
+	}
+	var rows []struct {
+		ID uint
+		OK bool
+	}
+	err := r.DB.Raw(`
+		SELECT v.id,
+		       (v.archived_at IS NULL AND `+catalogVisibleOn("p")+`) AS ok
+		FROM product_variants v
+		JOIN products p ON p.id = v.product_id
+		WHERE v.id IN ?`, variantIDs).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	live := make(map[uint]bool, len(rows))
+	for _, row := range rows {
+		live[row.ID] = row.OK
+	}
+	// Вариант, которого в БД нет вовсе (подделан клиентом или вычищен),
+	// тоже недоступен — иначе он молча уедет в заказ.
+	var out []uint
+	for _, id := range variantIDs {
+		if !live[id] {
+			out = append(out, id)
+		}
+	}
+	return out, nil
 }
 
 func (r *Repository) SetProductHit(id uint, hit bool) error {

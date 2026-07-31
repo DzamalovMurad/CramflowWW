@@ -52,8 +52,17 @@ func main() {
 		&model.Product{}, &model.ProductVariant{}, &model.ProductImage{},
 		&model.PromoCode{}, &model.User{}, &model.Order{}, &model.OrderItem{},
 		&model.FreshToday{}, &model.OrderStatusLog{},
+		&model.Broadcast{}, &model.BroadcastRecipient{},
 	); err != nil {
 		log.Fatalf("миграции: %v", err)
+	}
+
+	// Частичный индекс под витрину: AutoMigrate такие не умеет, а именно эту
+	// выборку каталог делает на каждый запрос (см. repository.catalogVisible).
+	if err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_products_catalog
+		ON products (created_at DESC)
+		WHERE is_hidden = FALSE AND is_available = TRUE AND archived_at IS NULL`).Error; err != nil {
+		log.Printf("индекс каталога: %v", err)
 	}
 
 	// Куда складывать фото товаров:
@@ -107,6 +116,10 @@ func main() {
 		if err != nil {
 			log.Fatalf("бот: %v", err)
 		}
+
+		// Рассылка, прерванная остановкой сервиса, продолжается с того места,
+		// где оборвалась, — и не пишет повторно тем, кому уже написали.
+		bot.ResumeBroadcasts()
 
 		// BOT_MODE=webhook — для хостингов, засыпающих без трафика: входящий
 		// запрос от Telegram сам будит сервис. По умолчанию — long polling.

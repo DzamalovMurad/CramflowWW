@@ -30,6 +30,7 @@ func testRepo(t *testing.T) *Repository {
 		&model.Product{}, &model.ProductVariant{}, &model.ProductImage{},
 		&model.PromoCode{}, &model.User{}, &model.Order{}, &model.OrderItem{},
 		&model.FreshToday{}, &model.OrderStatusLog{},
+		&model.Broadcast{}, &model.BroadcastRecipient{},
 	); err != nil {
 		t.Fatalf("миграции: %v", err)
 	}

@@ -52,6 +52,9 @@ export const content = {
     inBouquet: 'в букете',
     total: 'итого',
     checkout: 'оформить заказ',
+    unavailable: 'недоступен',
+    removeUnavailable: 'удалить',
+    blockedHint: 'уберите недоступные букеты, чтобы продолжить',
   },
 
   checkout: {
@@ -62,6 +65,12 @@ export const content = {
     phonePlaceholder: '+7 900 000-00-00',
     address: 'адрес доставки',
     addressPlaceholder: 'улица, дом, квартира',
+    recipientName: 'имя получателя',
+    recipientOptional: 'если букет не вам',
+    recipientNamePlaceholder: 'мария',
+    recipientPhone: 'телефон получателя',
+    recipientPhonePlaceholder: '+7 900 000-00-00',
+    unavailable: 'некоторые букеты стали недоступны — вернитесь в корзину',
     date: 'дата доставки',
     time: 'время доставки',
     timeNote: 'доставляем ежедневно с 9:00 до 21:00',
