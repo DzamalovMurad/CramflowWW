@@ -92,3 +92,28 @@ export function fetchMe(): Promise<{ name?: string; phone?: string; promo_code?:
 export function fetchFreshToday(): Promise<{ items?: string }> {
   return request('/api/fresh-today');
 }
+
+/**
+ * Трекинг запуска Mini App: сервер парсит startapp-параметр из initData
+ * и запоминает first-touch источник клиента (для /stats в админ-боте).
+ */
+export function trackLaunch(): Promise<Record<string, never>> {
+  return request('/api/launch', { method: 'POST' });
+}
+
+export interface SubscriptionBonus {
+  enabled: boolean;
+  claimed: boolean;
+  code?: string;
+  discount_percent?: number;
+  channel_url?: string;
+}
+
+export function fetchSubscriptionBonus(): Promise<SubscriptionBonus> {
+  return request('/api/subscription-bonus');
+}
+
+/** Проверяет подписку на канал через бота и выдаёт одноразовый промокод. */
+export function claimSubscriptionBonus(): Promise<SubscriptionBonus> {
+  return request('/api/subscription-bonus', { method: 'POST' });
+}

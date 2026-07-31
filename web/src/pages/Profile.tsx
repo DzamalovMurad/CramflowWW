@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Header from '../components/Header';
-import { fetchMe } from '../api';
+import { claimSubscriptionBonus, fetchMe, fetchSubscriptionBonus, type SubscriptionBonus } from '../api';
 import { content } from '../content';
+import { haptic } from '../telegram';
 
 const c = content.profile;
 
@@ -65,11 +66,81 @@ export default function Profile() {
           </div>
         )}
 
+        <SubscriptionPromo />
+
         <div className="mt-6 rounded-card bg-surface p-5 shadow-card">
           <p className="label mb-2">{c.about}</p>
           <p className="text-sm leading-relaxed text-muted">{c.aboutText}</p>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Промокод за подписку на канал: мягкий гейт через getChatMember на сервере. */
+function SubscriptionPromo() {
+  const [bonus, setBonus] = useState<SubscriptionBonus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetchSubscriptionBonus()
+      .then(setBonus)
+      .catch(() => {});
+  }, []);
+
+  if (!bonus?.enabled) return null;
+
+  const claim = () => {
+    setBusy(true);
+    setError('');
+    claimSubscriptionBonus()
+      .then((b) => {
+        setBonus(b);
+        haptic('success');
+      })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="mt-6 rounded-card bg-surface p-5 shadow-card">
+      <p className="label mb-2">{c.subPromoTitle}</p>
+      {bonus.claimed && bonus.code ? (
+        <div className="rounded-card bg-ink p-4 text-page">
+          <p className="text-[11px] font-bold uppercase tracking-wider opacity-70">{c.subPromoYours}</p>
+          <div className="mt-1 flex items-baseline justify-between">
+            <span className="text-[20px] font-extrabold text-accent-ink">{bonus.code}</span>
+            <span className="text-sm opacity-80">
+              {c.discount} {bonus.discount_percent}%
+            </span>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="text-sm leading-relaxed text-muted">{c.subPromoText}</p>
+          {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
+          <div className="mt-4 flex flex-col gap-2">
+            {bonus.channel_url && (
+              <a
+                href={bonus.channel_url}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-button bg-ink px-5 py-3 text-center text-[14px] font-bold lowercase text-page"
+              >
+                {c.subPromoChannel}
+              </a>
+            )}
+            <button
+              onClick={claim}
+              disabled={busy}
+              className="btn-accent rounded-button px-5 py-3 text-[14px] font-bold lowercase disabled:opacity-60"
+            >
+              {busy ? c.subPromoChecking : c.subPromoClaim}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

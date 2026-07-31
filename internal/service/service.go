@@ -4,9 +4,11 @@ package service
 import (
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -62,8 +64,9 @@ type OrderInput struct {
 	CardText        string           `json:"card_text"`    // текст открытки, до 300 символов
 	IsAnonymous     bool             `json:"is_anonymous"` // анонимная доставка
 	PromoCode       string           `json:"promo_code"`
-	// TelegramID заполняется хендлером из initData, не клиентом.
-	TelegramID int64 `json:"-"`
+	// TelegramID и Source заполняются хендлером из initData, не клиентом.
+	TelegramID int64  `json:"-"`
+	Source     string `json:"-"` // источник запуска Mini App (startapp-параметр)
 }
 
 type ValidationError struct{ Msg string }
@@ -109,6 +112,11 @@ func (s *Service) CreateOrder(in OrderInput) (*model.Order, error) {
 	user, err := s.Repo.UpsertUser(in.TelegramID, in.Name, in.Phone)
 	if err != nil {
 		return nil, err
+	}
+	// First-touch источник: если клиент впервые попал к нам через checkout
+	// (не открывал профиль/главную с трекингом), фиксируем источник здесь же.
+	if in.Source != "" {
+		_ = s.Repo.SetUserAcquisitionSource(user.ID, in.Source)
 	}
 
 	// Собираем позиции по ценам из БД — клиентским ценам не доверяем.
@@ -169,6 +177,7 @@ func (s *Service) CreateOrder(in OrderInput) (*model.Order, error) {
 		CardText:        in.CardText,
 		IsAnonymous:     in.IsAnonymous,
 		Status:          model.StatusNew,
+		Source:          in.Source,
 		Items:           items,
 	}
 	if err := s.Repo.CreateOrder(order); err != nil {
@@ -207,6 +216,13 @@ func (s *Service) TransitionOrder(orderID uint, to string, adminID int64, cancel
 			return nil, invalid("статус заказа уже изменился — обновите карточку")
 		}
 		return nil, err
+	}
+	// Доставлен → через 2 часа спросим про букет. План живёт в БД (notifications),
+	// так что перезапуск сервиса ничего не теряет; дубликаты гасит уникальный индекс.
+	if to == model.StatusDelivered {
+		if err := s.Repo.ScheduleNotification(orderID, model.NotificationFeedback, time.Now().Add(model.FeedbackDelay)); err != nil {
+			log.Printf("планирование отзыва по заказу #%d: %v", orderID, err)
+		}
 	}
 	return s.Repo.GetOrder(orderID)
 }

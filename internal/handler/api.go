@@ -12,6 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"gorm.io/gorm"
+
+	"github.com/dzamalovmurad/cramflowww/internal/model"
 	"github.com/dzamalovmurad/cramflowww/internal/repository"
 	"github.com/dzamalovmurad/cramflowww/internal/service"
 	"github.com/dzamalovmurad/cramflowww/internal/storage"
@@ -21,6 +24,7 @@ type API struct {
 	Repo      *repository.Repository
 	Service   *service.Service
 	BotToken  string
+	Bot       *Bot              // nil без BOT_TOKEN: проверка подписки на канал недоступна
 	UploadDir string            // локальные фото, отдаются по /uploads/
 	Uploads   *storage.Postgres // если задан — фото берутся из БД, а не с диска
 	WebDist   string            // собранный фронтенд
@@ -40,6 +44,9 @@ func (a *API) Routes() http.Handler {
 	mux.HandleFunc("GET /api/promo/{code}", a.getPromo)
 	mux.HandleFunc("GET /api/me", a.getMe)
 	mux.HandleFunc("GET /api/fresh-today", a.getFreshToday)
+	mux.HandleFunc("POST /api/launch", a.trackLaunch)
+	mux.HandleFunc("GET /api/subscription-bonus", a.getSubscriptionBonus)
+	mux.HandleFunc("POST /api/subscription-bonus", a.claimSubscriptionBonus)
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -120,7 +127,9 @@ func (a *API) createOrder(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "некорректный запрос")
 		return
 	}
-	in.TelegramID = telegramUserID(r.Header.Get("X-Telegram-Init-Data"), a.BotToken)
+	tgID, startParam := telegramLaunch(r.Header.Get("X-Telegram-Init-Data"), a.BotToken)
+	in.TelegramID = tgID
+	in.Source = model.SourceFromStartParam(startParam)
 
 	order, err := a.Service.CreateOrder(in)
 	if err != nil {
@@ -194,6 +203,108 @@ func (a *API) getFreshToday(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": fresh.Items})
+}
+
+// trackLaunch — вызывается фронтендом при каждом запуске Mini App: парсит
+// start_param из initData и записывает first-touch источник клиента
+// (acquisition_source заполняется один раз и больше не перезаписывается).
+func (a *API) trackLaunch(w http.ResponseWriter, r *http.Request) {
+	tgID, startParam := telegramLaunch(r.Header.Get("X-Telegram-Init-Data"), a.BotToken)
+	if tgID != 0 {
+		if source := model.SourceFromStartParam(startParam); source != "" {
+			if user, err := a.Repo.UpsertUser(tgID, "", ""); err == nil {
+				_ = a.Repo.SetUserAcquisitionSource(user.ID, source)
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{})
+}
+
+// subscriptionBonusState — состояние бонуса за подписку для Mini App.
+func (a *API) subscriptionBonusState(tgID int64) map[string]any {
+	resp := map[string]any{
+		"enabled": a.Bot != nil && a.Bot.ChannelEnabled(),
+		"claimed": false,
+	}
+	if a.Bot != nil {
+		if url := a.Bot.ChannelURL(); url != "" {
+			resp["channel_url"] = url
+		}
+	}
+	if tgID == 0 {
+		return resp
+	}
+	user, err := a.Repo.GetUserByTelegramID(tgID)
+	if err != nil {
+		return resp
+	}
+	if cb, err := a.Repo.GetClaimedBonus(user.ID, model.BonusSubscription); err == nil {
+		resp["claimed"] = true
+		resp["code"] = cb.PromoCode.Code
+		resp["discount_percent"] = cb.PromoCode.DiscountPercent
+	}
+	return resp
+}
+
+// getSubscriptionBonus — статус блока «Промокод за подписку» в профиле.
+func (a *API) getSubscriptionBonus(w http.ResponseWriter, r *http.Request) {
+	tgID := telegramUserID(r.Header.Get("X-Telegram-Init-Data"), a.BotToken)
+	writeJSON(w, http.StatusOK, a.subscriptionBonusState(tgID))
+}
+
+// claimSubscriptionBonus — выдача одноразового промокода за подписку на канал.
+// Мягкий гейт: getChatMember подтверждает подписку, claimed_bonuses не даёт
+// получить бонус повторно (уникальный индекс user_id+type).
+func (a *API) claimSubscriptionBonus(w http.ResponseWriter, r *http.Request) {
+	if a.Bot == nil || !a.Bot.ChannelEnabled() {
+		writeError(w, http.StatusServiceUnavailable, "бонус за подписку сейчас недоступен")
+		return
+	}
+	tgID := telegramUserID(r.Header.Get("X-Telegram-Init-Data"), a.BotToken)
+	if tgID == 0 {
+		writeError(w, http.StatusUnauthorized, "откройте магазин из Telegram, чтобы получить бонус")
+		return
+	}
+	user, err := a.Repo.UpsertUser(tgID, "", "")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "что-то пошло не так, попробуйте позже")
+		return
+	}
+	// Уже получали — просто возвращаем текущее состояние с кодом.
+	if _, err := a.Repo.GetClaimedBonus(user.ID, model.BonusSubscription); err == nil {
+		writeJSON(w, http.StatusOK, a.subscriptionBonusState(tgID))
+		return
+	}
+
+	subscribed, err := a.Bot.IsSubscribed(tgID)
+	if err != nil {
+		log.Printf("проверка подписки: %v", err)
+		writeError(w, http.StatusBadGateway, "не получилось проверить подписку, попробуйте позже")
+		return
+	}
+	if !subscribed {
+		writeError(w, http.StatusForbidden, "сначала подпишитесь на канал — и возвращайтесь за промокодом 🌸")
+		return
+	}
+
+	promo, err := a.Repo.CreateSingleUsePromo("FLOWIX", model.SubscriptionPromoPercent)
+	if err != nil {
+		log.Printf("промокод за подписку: %v", err)
+		writeError(w, http.StatusInternalServerError, "что-то пошло не так, попробуйте позже")
+		return
+	}
+	err = a.Repo.CreateClaimedBonus(&model.ClaimedBonus{
+		UserID: user.ID, Type: model.BonusSubscription, PromoCodeID: promo.ID,
+	})
+	if err != nil {
+		// Гонка двух запросов: бонус уже выдан — отдаём сохранённый.
+		if !errors.Is(err, gorm.ErrDuplicatedKey) {
+			log.Printf("фиксация бонуса за подписку: %v", err)
+			writeError(w, http.StatusInternalServerError, "что-то пошло не так, попробуйте позже")
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, a.subscriptionBonusState(tgID))
 }
 
 // serveUpload — отдаёт фото товара из БД (хостинг без постоянного диска).

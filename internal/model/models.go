@@ -1,8 +1,6 @@
 package model
 
 import (
-	"fmt"
-	"strings"
 	"time"
 )
 
@@ -40,31 +38,6 @@ var StatusLabels = map[string]string{
 var StatusOrder = []string{
 	StatusNew, StatusConfirmed, StatusAssembling, StatusPhotoSent,
 	StatusDelivering, StatusDelivered, StatusCancelled,
-}
-
-// ClientStatusMessages — что бот пишет клиенту при смене статуса (нет ключа = не писать).
-// Каждый шаблон обязан содержать ровно один %d — номер заказа (см. ClientStatusText).
-var ClientStatusMessages = map[string]string{
-	StatusConfirmed:  "Заказ #%d подтверждён ✅",
-	StatusAssembling: "Собираем ваш букет 💐 Заказ #%d",
-	StatusDelivering: "Курьер в пути 🚗 Заказ #%d",
-	StatusDelivered:  "Заказ #%d доставлен. Спасибо! 🌸",
-	StatusCancelled:  "Заказ #%d отменён. Если это ошибка — напишите нам.",
-}
-
-// ClientStatusText — текст уведомления клиенту о смене статуса.
-// Второе значение false, если для статуса писать не нужно.
-// Номер подставляется только при наличии %d в шаблоне — иначе в сообщение
-// попадал бы мусор вида "%!(EXTRA uint=4)".
-func ClientStatusText(status string, orderID uint) (string, bool) {
-	tmpl, ok := ClientStatusMessages[status]
-	if !ok || tmpl == "" {
-		return "", false
-	}
-	if !strings.Contains(tmpl, "%d") {
-		return tmpl, true
-	}
-	return fmt.Sprintf(tmpl, orderID), true
 }
 
 type Product struct {
@@ -106,29 +79,35 @@ type User struct {
 	TelegramID int64  `gorm:"uniqueIndex" json:"telegram_id"`
 	Name       string `json:"name"`
 	Phone      string `json:"phone"`
+	// AcquisitionSource — first-touch источник (startapp-параметр первого запуска
+	// Mini App: product_<id>, метка src_<tag> и т.п.). Записывается один раз.
+	AcquisitionSource string `json:"acquisition_source,omitempty"`
 	// Промокод, полученный по deep-link t.me/bot?start=CODE.
 	PromoCodeID *uint      `json:"promo_code_id,omitempty"`
 	PromoCode   *PromoCode `json:"promo_code,omitempty"`
 }
 
 type Order struct {
-	ID              uint      `gorm:"primaryKey" json:"id"`
-	UserID          uint      `gorm:"not null;index;index:idx_orders_user_status" json:"user_id"`
-	TotalPrice      int       `gorm:"not null" json:"total_price"`
-	DeliveryAddress string    `gorm:"not null" json:"delivery_address"`
-	DeliveryDate    string    `gorm:"not null;index:idx_orders_status_ddate" json:"delivery_date"`
-	DeliveryTime    string    `gorm:"not null" json:"delivery_time"`
-	PromoCodeID     *uint     `json:"promo_code_id,omitempty"`
-	Comment         string    `json:"comment"`
-	CardText        string    `json:"card_text"`     // текст открытки (до 300 символов)
-	IsAnonymous     bool      `json:"is_anonymous"`  // анонимная доставка
-	CancelReason    string    `json:"cancel_reason"` // причина отмены (обязательна при отмене админом)
-	Status          string    `gorm:"not null;default:new;index;index:idx_orders_status_ddate,priority:1;index:idx_orders_user_status,priority:2" json:"status"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID              uint   `gorm:"primaryKey" json:"id"`
+	UserID          uint   `gorm:"not null;index;index:idx_orders_user_status" json:"user_id"`
+	TotalPrice      int    `gorm:"not null" json:"total_price"`
+	DeliveryAddress string `gorm:"not null" json:"delivery_address"`
+	DeliveryDate    string `gorm:"not null;index:idx_orders_status_ddate" json:"delivery_date"`
+	DeliveryTime    string `gorm:"not null" json:"delivery_time"`
+	PromoCodeID     *uint  `json:"promo_code_id,omitempty"`
+	Comment         string `json:"comment"`
+	CardText        string `json:"card_text"`     // текст открытки (до 300 символов)
+	IsAnonymous     bool   `json:"is_anonymous"`  // анонимная доставка
+	CancelReason    string `json:"cancel_reason"` // причина отмены (обязательна при отмене админом)
+	Status          string `gorm:"not null;default:new;index;index:idx_orders_status_ddate,priority:1;index:idx_orders_user_status,priority:2" json:"status"`
+	// Source — откуда пришёл заказ (startapp-параметр текущего запуска Mini App).
+	Source    string    `gorm:"index" json:"source,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 
-	User      User        `json:"user"`
-	PromoCode *PromoCode  `json:"promo_code,omitempty"`
-	Items     []OrderItem `gorm:"constraint:OnDelete:CASCADE" json:"items"`
+	User      User         `json:"user"`
+	PromoCode *PromoCode   `json:"promo_code,omitempty"`
+	Items     []OrderItem  `gorm:"constraint:OnDelete:CASCADE" json:"items"`
+	Photos    []OrderPhoto `gorm:"constraint:OnDelete:CASCADE" json:"photos,omitempty"`
 }
 
 type OrderItem struct {
@@ -199,4 +178,70 @@ type PromoCode struct {
 	Code            string `gorm:"uniqueIndex;not null" json:"code"`
 	DiscountPercent int    `gorm:"not null" json:"discount_percent"`
 	Uses            int    `gorm:"not null;default:0" json:"uses"`
+	// MaxUses — лимит применений (0 = без лимита). Одноразовые коды за отзыв
+	// и подписку создаются с MaxUses=1; исчерпанный код не находится по /api/promo.
+	MaxUses int `gorm:"not null;default:0" json:"max_uses"`
+}
+
+// Типы фото букета по заказу.
+const (
+	PhotoAssembled = "assembled" // букет собран
+	PhotoDelivered = "delivered" // букет вручён
+)
+
+// PhotoTypeForStatus — какой тип фото снимает админ на текущем шаге конвейера:
+// до передачи курьеру — «собран», начиная с доставки — «вручён».
+func PhotoTypeForStatus(status string) string {
+	if status == StatusDelivering || status == StatusDelivered {
+		return PhotoDelivered
+	}
+	return PhotoAssembled
+}
+
+// OrderPhoto — фото букета по заказу. Храним только telegram file_id:
+// файл живёт на серверах Telegram, пересылается клиенту без скачивания.
+type OrderPhoto struct {
+	ID      uint   `gorm:"primaryKey" json:"id"`
+	OrderID uint   `gorm:"not null;index" json:"order_id"`
+	Type    string `gorm:"not null" json:"type"` // assembled | delivered
+	FileID  string `gorm:"not null" json:"file_id"`
+	// IsDocument — фото прислано файлом (file_id документа нельзя отправить
+	// через sendPhoto — только через sendDocument, и наоборот).
+	IsDocument bool      `gorm:"not null;default:false" json:"is_document"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// Типы отложенных уведомлений.
+const (
+	NotificationFeedback = "feedback" // просьба об отзыве через 2ч после доставки
+)
+
+// Notification — отложенное уведомление. Планируется в БД (due_at), поэтому
+// перезапуск сервиса ничего не теряет; sent_at — защита от повторной отправки.
+type Notification struct {
+	ID      uint       `gorm:"primaryKey" json:"id"`
+	OrderID uint       `gorm:"not null;uniqueIndex:idx_notifications_order_type" json:"order_id"`
+	Type    string     `gorm:"not null;uniqueIndex:idx_notifications_order_type" json:"type"`
+	DueAt   time.Time  `gorm:"not null;index" json:"due_at"`
+	SentAt  *time.Time `gorm:"index" json:"sent_at,omitempty"`
+	// RespondedAt — клиент ответил на просьбу об отзыве (промокод уже выдан).
+	RespondedAt *time.Time `json:"responded_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
+// Типы разовых бонусов.
+const (
+	BonusSubscription = "subscription" // промокод за подписку на канал
+)
+
+// ClaimedBonus — выданные разовые бонусы: уникальный индекс (user_id, type)
+// не даёт получить один бонус дважды (защита от фарминга).
+type ClaimedBonus struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	UserID      uint      `gorm:"not null;uniqueIndex:idx_claimed_bonuses_user_type" json:"user_id"`
+	Type        string    `gorm:"not null;uniqueIndex:idx_claimed_bonuses_user_type" json:"type"`
+	PromoCodeID uint      `gorm:"not null" json:"promo_code_id"`
+	CreatedAt   time.Time `json:"created_at"`
+
+	PromoCode PromoCode `json:"promo_code"`
 }

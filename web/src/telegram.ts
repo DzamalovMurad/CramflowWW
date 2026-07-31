@@ -5,6 +5,7 @@
 
 type TelegramWebApp = {
   initData: string;
+  initDataUnsafe?: { start_param?: string };
   colorScheme: 'light' | 'dark';
   themeParams: Record<string, string>;
   ready: () => void;
@@ -24,6 +25,19 @@ export function tg(): TelegramWebApp | undefined {
 export function initDataHeader(): Record<string, string> {
   const data = tg()?.initData;
   return data ? { 'X-Telegram-Init-Data': data } : {};
+}
+
+/**
+ * startapp-параметр запуска Mini App (t.me/bot?startapp=...):
+ * product_<id> открывает карточку товара, src_<tag> — метка источника.
+ * Вне Telegram параметр приходит в query как tgWebAppStartParam.
+ */
+export function startParam(): string {
+  return (
+    tg()?.initDataUnsafe?.start_param ??
+    new URLSearchParams(window.location.search).get('tgWebAppStartParam') ??
+    ''
+  );
 }
 
 function applyScheme() {

@@ -52,6 +52,7 @@ func main() {
 		&model.Product{}, &model.ProductVariant{}, &model.ProductImage{},
 		&model.PromoCode{}, &model.User{}, &model.Order{}, &model.OrderItem{},
 		&model.FreshToday{}, &model.OrderStatusLog{},
+		&model.OrderPhoto{}, &model.Notification{}, &model.ClaimedBonus{},
 	); err != nil {
 		log.Fatalf("миграции: %v", err)
 	}
@@ -103,10 +104,16 @@ func main() {
 			log.Println("внимание: ADMIN_IDS/ADMIN_CHAT_ID не заданы — админ-команды будут недоступны")
 		}
 		appURL := os.Getenv("TELEGRAM_APP_URL")
-		bot, err := handler.NewBot(botToken, adminIDs, appURL, repo, svc, store)
+		// CHANNEL_ID (@username или -100…) включает /post и промокод за подписку.
+		bot, err := handler.NewBot(botToken, adminIDs, appURL, os.Getenv("CHANNEL_ID"), repo, svc, store)
 		if err != nil {
 			log.Fatalf("бот: %v", err)
 		}
+		api.Bot = bot
+
+		// Планировщик отложенных уведомлений (просьба об отзыве через 2ч после
+		// доставки): очередь в БД, тикер раз в минуту, переживает перезапуски.
+		go bot.RunScheduler()
 
 		// BOT_MODE=webhook — для хостингов, засыпающих без трафика: входящий
 		// запрос от Telegram сам будит сервис. По умолчанию — long polling.

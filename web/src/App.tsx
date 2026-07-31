@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import Home from './pages/Home';
 import Catalog from './pages/Catalog';
@@ -9,12 +9,23 @@ import Confirmation from './pages/Confirmation';
 import Profile from './pages/Profile';
 import TabBar from './components/TabBar';
 import AppLoader from './components/AppLoader';
-import { warmUp } from './api';
-import { tg } from './telegram';
+import { trackLaunch, warmUp } from './api';
+import { startParam, tg } from './telegram';
 
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
+
+  // startapp-параметр (t.me/bot?startapp=...): трекинг источника на сервере
+  // и прямое открытие карточки товара из поста в канале. Один раз за запуск.
+  const startHandled = useRef(false);
+  useEffect(() => {
+    if (startHandled.current) return;
+    startHandled.current = true;
+    trackLaunch().catch(() => {});
+    const match = /^product_(\d+)$/.exec(startParam());
+    if (match) navigate(`/product/${match[1]}`, { replace: true });
+  }, [navigate]);
 
   // Стартовая заставка: минимум 1.5с, максимум 3с; за это время
   // warmUp() кладёт каталог и первые фото букетов в кэш.
