@@ -164,6 +164,9 @@ func run(log *slog.Logger, seed, backupNow bool) error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Error("HTTP-сервер не завершился штатно", "err", err)
 	}
+	// Порядок важен: сначала перестаём принимать заказы, потом даём
+	// разойтись уведомлениям о уже принятых, и только затем гасим бота.
+	svc.DrainNotifications(shutdownCtx)
 	if bot != nil {
 		bot.Stop(shutdownCtx)
 	}

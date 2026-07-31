@@ -332,3 +332,71 @@ func TestIntegrationPromoEndpointIsRateLimited(t *testing.T) {
 		t.Fatal("перебор промокодов не был ограничен")
 	}
 }
+
+// Тело запроса, снятое из работающего Mini App (Chromium, форма заполнена
+// вручную). Сервер обязан принимать ровно его: рассинхрон имён полей или
+// формата даты между TypeScript и Go собирается без ошибок, а ломается
+// только в бою.
+func TestIntegrationServerAcceptsRealFrontendPayload(t *testing.T) {
+	h := newAPIHarness(t)
+	p := &model.Product{
+		Name: "Розы Эквадор", Category: model.CategoryPremium,
+		Variants: []model.ProductVariant{{Quantity: 9, Price: 2990}},
+	}
+	if err := h.repo.CreateProduct(t.Context(), p); err != nil {
+		t.Fatalf("товар: %v", err)
+	}
+
+	body := `{
+	 "items": [{"variant_id": ` + strconv.FormatUint(uint64(p.Variants[0].ID), 10) + `, "quantity": 1}],
+	 "name": "Мария Тестова",
+	 "phone": "+7 900 111-22-33",
+	 "delivery_address": "Москва, Тверская 1, кв 5",
+	 "delivery_date": "` + h.cfg.Today() + `",
+	 "delivery_time": "в течение часа",
+	 "recipient_name": "Мама",
+	 "recipient_phone": "+7 900 999-88-77",
+	 "comment": "",
+	 "card_text": "С днём рождения!",
+	 "is_anonymous": false,
+	 "promo_code": ""
+	}`
+
+	rec := h.do(t, http.MethodPost, "/api/orders", body, 606060)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("сервер отклонил тело, которое шлёт Mini App: %d — %s", rec.Code, rec.Body.String())
+	}
+
+	var got orderView
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("ответ не разбирается: %v", err)
+	}
+	if got.TotalPrice != 2990 {
+		t.Errorf("итог = %d, ожидали 2990", got.TotalPrice)
+	}
+	if len(got.Items) != 1 || got.Items[0].FlowersCount != 9 {
+		t.Errorf("позиции ответа неполны: %+v", got.Items)
+	}
+	// Поля, без которых экран подтверждения и «мои заказы» покажут пустоту.
+	if got.StatusLabel == "" || got.DeliveryDate == "" || got.DeliveryTime == "" {
+		t.Errorf("ответ без обязательных для интерфейса полей: %+v", got)
+	}
+	if got.Items[0].ProductID == 0 || got.Items[0].VariantID == 0 {
+		t.Error("в ответе нет product_id/variant_id — «повторить заказ» работать не будет")
+	}
+
+	// Получатель и открытка должны доехать до карточки админа.
+	full, err := h.repo.GetOrder(t.Context(), got.ID)
+	if err != nil {
+		t.Fatalf("чтение заказа: %v", err)
+	}
+	if full.RecipientName != "Мама" || full.RecipientPhone != "+79009998877" {
+		t.Errorf("получатель сохранён неверно: %q / %q", full.RecipientName, full.RecipientPhone)
+	}
+	if full.CardText != "С днём рождения!" {
+		t.Errorf("текст открытки: %q", full.CardText)
+	}
+	if full.User.Phone != "+79001112233" {
+		t.Errorf("телефон заказчика не нормализован: %q", full.User.Phone)
+	}
+}

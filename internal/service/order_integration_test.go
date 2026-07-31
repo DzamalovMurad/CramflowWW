@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -700,5 +701,70 @@ func TestIntegrationConcurrentOrdersNoDeadlock(t *testing.T) {
 		if got := h.stockOf(t, name); got != 500-len(orders)*rounds {
 			t.Errorf("%s: остаток %d, ожидали %d", name, got, 500-len(orders)*rounds)
 		}
+	}
+}
+
+// Редеплой не должен обрывать отправку карточки нового заказа флористу:
+// заказ уже принят, и узнавать о нём из /orders постфактум — плохой сценарий.
+func TestIntegrationNotificationsDrainedOnShutdown(t *testing.T) {
+	h := newHarness(t)
+	v := h.product(t, "Букет для дренажа", 1000, -1)
+
+	var delivered atomic.Int32
+	release := make(chan struct{})
+	h.svc.NotifyNewOrder = func(*model.Order) {
+		<-release // держим отправку, как медленный Telegram
+		delivered.Add(1)
+	}
+
+	if _, err := h.svc.CreateOrder(t.Context(), order(v, 1, 7200)); err != nil {
+		t.Fatalf("создание заказа: %v", err)
+	}
+	if delivered.Load() != 0 {
+		t.Fatal("уведомление не должно блокировать ответ клиенту")
+	}
+
+	drained := make(chan struct{})
+	go func() {
+		h.svc.DrainNotifications(context.Background())
+		close(drained)
+	}()
+
+	select {
+	case <-drained:
+		t.Fatal("остановка не дождалась незавершённого уведомления")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case <-drained:
+	case <-time.After(3 * time.Second):
+		t.Fatal("дренаж уведомлений завис")
+	}
+	if delivered.Load() != 1 {
+		t.Fatalf("доставлено уведомлений: %d, ожидали 1", delivered.Load())
+	}
+}
+
+// Дренаж не должен зависать навсегда, если Telegram не отвечает.
+func TestIntegrationNotificationDrainRespectsDeadline(t *testing.T) {
+	h := newHarness(t)
+	v := h.product(t, "Букет для таймаута", 1000, -1)
+
+	stuck := make(chan struct{})
+	defer close(stuck)
+	h.svc.NotifyNewOrder = func(*model.Order) { <-stuck }
+
+	if _, err := h.svc.CreateOrder(t.Context(), order(v, 1, 7300)); err != nil {
+		t.Fatalf("создание заказа: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	h.svc.DrainNotifications(ctx)
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("дренаж не уложился в дедлайн: %v", elapsed)
 	}
 }

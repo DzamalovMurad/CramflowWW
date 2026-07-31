@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -74,6 +75,26 @@ type Service struct {
 	// nowFn — часы магазина. Отдельным полем, чтобы тесты правил доставки
 	// не зависели от того, в какое время суток их запустили.
 	nowFn func() time.Time
+
+	// notifying считает незавершённые уведомления, чтобы редеплой не оборвал
+	// отправку карточки нового заказа флористу.
+	notifying sync.WaitGroup
+}
+
+// DrainNotifications ждёт, пока разойдутся уведомления о заказах.
+// Вызывается при остановке сервиса: заказ уже в БД, но флорист должен
+// получить карточку, а не узнавать о заказе из /orders постфактум.
+func (s *Service) DrainNotifications(ctx context.Context) {
+	done := make(chan struct{})
+	go func() {
+		s.notifying.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		s.Log.Warn("уведомления о заказах не успели отправиться до остановки")
+	}
 }
 
 func New(repo *repository.Repository, cfg *config.Config, log *slog.Logger) *Service {
@@ -212,7 +233,9 @@ func (s *Service) notifyNewOrder(o *model.Order) {
 	if s.NotifyNewOrder == nil {
 		return
 	}
+	s.notifying.Add(1)
 	go func() {
+		defer s.notifying.Done()
 		defer func() {
 			if rec := recover(); rec != nil {
 				s.Log.Error("паника при уведомлении о заказе", "order_id", o.ID, "panic", rec)
