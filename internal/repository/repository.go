@@ -420,9 +420,13 @@ func (r *Repository) SetUserPromo(userID uint, promoID uint) error {
 
 // --- Promo codes ---
 
+// GetPromoByCode — живой промокод: исчерпанные одноразовые (uses >= max_uses)
+// ведут себя как несуществующие.
 func (r *Repository) GetPromoByCode(code string) (*model.PromoCode, error) {
 	var p model.PromoCode
-	err := r.DB.Where("UPPER(code) = UPPER(?)", code).First(&p).Error
+	err := r.DB.Where("UPPER(code) = UPPER(?)", code).
+		Where("max_uses = 0 OR uses < max_uses").
+		First(&p).Error
 	if err != nil {
 		return nil, err
 	}

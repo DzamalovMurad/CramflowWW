@@ -142,10 +142,12 @@ func main() {
 		if len(adminIDs) == 0 {
 			log.Println("внимание: ADMIN_IDS/ADMIN_CHAT_ID не заданы — админ-команды будут недоступны")
 		}
-		bot, err = handler.NewBot(botToken, adminIDs, appURL, repo, svc, store)
+		// CHANNEL_ID (@username или -100…) включает /post и промокод за подписку.
+		bot, err = handler.NewBot(botToken, adminIDs, appURL, os.Getenv("CHANNEL_ID"), repo, svc, store)
 		if err != nil {
 			log.Fatalf("бот: %v", err)
 		}
+		api.Bot = bot
 		api.BotUsername = bot.Username()
 
 		if appURL == "" {
@@ -154,7 +156,7 @@ func main() {
 
 		// Бэкапы: ночной крон + ручной /backup.
 		if bs := backup.New(dsn, envOr("BACKUP_DIR", "./backups"),
-			parseInt64(os.Getenv("BACKUP_CHANNEL_ID")), bot.API(), adminIDs); bs != nil {
+			parseInt64(os.Getenv("BACKUP_CHANNEL_ID")), bot, adminIDs); bs != nil {
 			bot.OnBackup = func(chatID int64) {
 				bs.RunManual(context.Background(), chatID)
 			}
@@ -174,6 +176,10 @@ func main() {
 		// Рассылка, прерванная остановкой сервиса, продолжается с того места,
 		// где оборвалась, — и не пишет повторно тем, кому уже написали.
 		bot.ResumeBroadcasts()
+
+		// Планировщик отложенных уведомлений (просьба об отзыве через 2ч после
+		// доставки): очередь в БД, тикер раз в минуту, переживает перезапуски.
+		go bot.RunScheduler()
 
 		// BOT_MODE=webhook — для хостингов, засыпающих без трафика: входящий
 		// запрос от Telegram сам будит сервис. По умолчанию — long polling.

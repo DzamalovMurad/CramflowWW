@@ -72,7 +72,7 @@ func (b *Bot) SetupWebhook(baseURL, secret string) error {
 
 // RemoveWebhook снимает webhook (нужно перед возвратом на long polling).
 func (b *Bot) RemoveWebhook() error {
-	_, err := b.api.Request(tgbotapi.DeleteWebhookConfig{DropPendingUpdates: false})
+	_, err := b.tgRequest(tgbotapi.DeleteWebhookConfig{DropPendingUpdates: false})
 	return err
 }
 

@@ -31,11 +31,18 @@ const keepLocal = 14
 // покрывает холодный старт serverless-Postgres.
 const dumpTimeout = 3 * time.Minute
 
+// Sender — то, через что уходят дампы и отчёты. Это не *tgbotapi.BotAPI
+// намеренно: обращения к Bot API проходят через общий лимитер бота, и дамп
+// на 20 МБ не должен обгонять уведомление о заказе в обход очереди.
+type Sender interface {
+	Send(c tgbotapi.Chattable) (tgbotapi.Message, error)
+}
+
 type Service struct {
 	DatabaseURL string
 	Dir         string // куда складывать дампы
 	ChannelID   int64  // приватный канал-архив
-	Bot         *tgbotapi.BotAPI
+	Bot         Sender
 	// Notify — куда отчитаться о ручном запуске (0 = молча).
 	AdminIDs []int64
 }
@@ -43,7 +50,7 @@ type Service struct {
 // New собирает сервис бэкапов. Возвращает nil, если он не сконфигурирован:
 // без канала складывать дампы некуда, а держать их только в эфемерном
 // контейнере бессмысленно.
-func New(databaseURL, dir string, channelID int64, bot *tgbotapi.BotAPI, adminIDs []int64) *Service {
+func New(databaseURL, dir string, channelID int64, bot Sender, adminIDs []int64) *Service {
 	if databaseURL == "" || channelID == 0 || bot == nil {
 		return nil
 	}

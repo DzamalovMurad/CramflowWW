@@ -22,9 +22,11 @@ import (
 // написав тому, кому уже написали (см. model.RecipientSending).
 
 const (
-	// Telegram разрешает ~30 сообщений в секунду; держим 20 с запасом,
-	// чтобы рассылка не выедала лимит у оперативных уведомлений о заказах.
-	broadcastRate  = 20
+	// Темп отправки задаёт общий лимитер бота (см. handler/ratelimit.go) —
+	// собственного тикера здесь нет намеренно: две независимые «страховки»
+	// от 429 всё равно считают одну и ту же квоту Telegram, и вторая только
+	// маскирует настройки первой. Батч мелкий, поэтому оперативное уведомление
+	// о заказе встаёт в очередь максимум за 20 отправок до своего слота.
 	broadcastBatch = 20
 	// Как часто дорисовывать «Отправлено 120/450»: edit — тоже запрос к API,
 	// и на большой аудитории он бы съел заметную долю лимита.
@@ -141,10 +143,10 @@ func (b *Bot) sendBroadcastContent(chatID int64, bc *model.Broadcast) error {
 	if bc.PhotoID != "" {
 		photo := tgbotapi.NewPhoto(chatID, tgbotapi.FileID(bc.PhotoID))
 		photo.Caption = bc.Text
-		_, err := b.api.Send(photo)
+		_, err := b.tgSend(photo)
 		return err
 	}
-	_, err := b.api.Send(tgbotapi.NewMessage(chatID, bc.Text))
+	_, err := b.tgSend(tgbotapi.NewMessage(chatID, bc.Text))
 	return err
 }
 
@@ -175,7 +177,7 @@ func (b *Bot) confirmBroadcast(chatID int64, msgID int, id uint) {
 
 	// Сообщение с прогрессом: его номер храним в БД, чтобы после перезапуска
 	// дописывать прогресс в него же, а не заводить второе.
-	progress, err := b.api.Send(tgbotapi.NewMessage(chatID, "⏳ Отправлено 0/"+model.FormatNumber(total)))
+	progress, err := b.tgSend(tgbotapi.NewMessage(chatID, "⏳ Отправлено 0/"+model.FormatNumber(total)))
 	if err == nil {
 		bc.ProgressChatID = chatID
 		bc.ProgressMsgID = progress.MessageID
@@ -225,8 +227,6 @@ func (b *Bot) runBroadcast(id uint) {
 		return
 	}
 
-	ticker := time.NewTicker(time.Second / broadcastRate)
-	defer ticker.Stop()
 	lastProgress := time.Now()
 
 	// Рассылка считается завершённой, только если очередь опустела штатно.
@@ -258,7 +258,6 @@ func (b *Bot) runBroadcast(id uint) {
 				interrupted = true
 				break
 			}
-			<-ticker.C
 			status, errMsg := b.deliverBroadcast(bc, rcp)
 			if err := b.repo.MarkRecipient(rcp.ID, status, errMsg); err != nil {
 				log.Printf("broadcast %d: отметка адресата %d: %v", id, rcp.ID, err)
@@ -302,23 +301,12 @@ func (b *Bot) runBroadcast(id uint) {
 }
 
 // deliverBroadcast отправляет одно сообщение и классифицирует исход.
+// Ожидание слота и повтор на 429 берёт на себя лимитер в tgSend —
+// сюда ошибка доходит, только когда повторы уже исчерпаны.
 func (b *Bot) deliverBroadcast(bc *model.Broadcast, rcp model.BroadcastRecipient) (status, errMsg string) {
 	err := b.sendBroadcastContent(rcp.TelegramID, bc)
 	if err == nil {
 		return model.RecipientSent, ""
-	}
-
-	// 429: Telegram просит подождать — это не отказ, повторяем один раз.
-	var tgErr *tgbotapi.Error
-	if errors.As(err, &tgErr) && tgErr.Code == 429 {
-		wait := time.Duration(tgErr.RetryAfter) * time.Second
-		if wait <= 0 || wait > time.Minute {
-			wait = time.Second
-		}
-		time.Sleep(wait)
-		if err = b.sendBroadcastContent(rcp.TelegramID, bc); err == nil {
-			return model.RecipientSent, ""
-		}
 	}
 
 	if isBlockedError(err) {
@@ -359,7 +347,7 @@ func (b *Bot) editBroadcastProgress(bc *model.Broadcast) {
 	text := fmt.Sprintf("⏳ Отправлено %s/%s",
 		model.FormatNumber(p.Sent), model.FormatNumber(p.Total))
 	edit := tgbotapi.NewEditMessageText(bc.ProgressChatID, bc.ProgressMsgID, text)
-	if _, err := b.api.Send(edit); err != nil {
+	if _, err := b.tgSend(edit); err != nil {
 		// «message is not modified» — обычное дело, если за интервал ничего не ушло.
 		if !strings.Contains(err.Error(), "not modified") {
 			log.Printf("broadcast %d: прогресс: %v", bc.ID, err)

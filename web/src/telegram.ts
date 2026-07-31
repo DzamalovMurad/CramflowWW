@@ -29,6 +29,20 @@ export function initDataHeader(): Record<string, string> {
   return data ? { 'X-Telegram-Init-Data': data } : {};
 }
 
+/**
+ * startapp-параметр запуска Mini App (t.me/bot?startapp=...):
+ * product_<id> открывает карточку товара, order_<id> — заказ из пуша
+ * о смене статуса, src_<tag> — метка источника.
+ * Вне Telegram параметр приходит в query как tgWebAppStartParam.
+ */
+export function startParam(): string {
+  return (
+    tg()?.initDataUnsafe?.start_param ??
+    new URLSearchParams(window.location.search).get('tgWebAppStartParam') ??
+    ''
+  );
+}
+
 function applyScheme() {
   // Тему применяет модуль theme.ts: выбор пользователя важнее темы Telegram.
   import('./theme').then(({ currentTheme, applyTheme }) => applyTheme(currentTheme()));
@@ -48,15 +62,6 @@ export function haptic(style: 'light' | 'medium' | 'success' | 'warning' | 'erro
   if (!h) return;
   if (style === 'success' || style === 'warning' || style === 'error') h.notificationOccurred(style);
   else h.impactOccurred(style);
-}
-
-/**
- * startParam — параметр запуска Mini App (t.me/bot/app?startapp=…).
- * Бот кладёт сюда `order_<id>`, когда клиент открывает приложение из пуша
- * о смене статуса: приложение сразу везёт его на нужный заказ.
- */
-export function startParam(): string {
-  return tg()?.initDataUnsafe?.start_param ?? '';
 }
 
 /** Номер заказа из пуша о статусе (0, если приложение открыли обычным способом). */

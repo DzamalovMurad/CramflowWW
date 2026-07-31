@@ -38,6 +38,15 @@ type Bot struct {
 	// fallback — диалоги заказа в чате, когда Mini App недоступен.
 	fallback *fallbackState
 
+	// Канал магазина (env CHANNEL_ID): /post и промокод за подписку.
+	channelChatID   int64
+	channelUsername string
+
+	// limiter выстраивает все обращения к Bot API в очередь под лимиты Telegram.
+	// Он один на бота: и оперативные уведомления, и рассылки, и посты в канал
+	// делят общую квоту Telegram, поэтому и считать её нужно в одном месте.
+	limiter tgLimiter
+
 	// Состояние визардов /add и /edit — по chat_id. В режиме webhook апдейты
 	// приходят параллельно, поэтому доступ под мьютексом.
 	wizards map[int64]*wizard
@@ -176,7 +185,7 @@ type draft struct {
 	imageURLs   []string
 }
 
-func NewBot(token string, adminIDs []int64, appURL string, repo *repository.Repository, svc *service.Service, store storage.Storage) (*Bot, error) {
+func NewBot(token string, adminIDs []int64, appURL, channelID string, repo *repository.Repository, svc *service.Service, store storage.Storage) (*Bot, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
@@ -187,16 +196,19 @@ func NewBot(token string, adminIDs []int64, appURL string, repo *repository.Repo
 	if appURL != "" && !strings.Contains(appURL, "://") {
 		appURL = "https://" + appURL
 	}
+	chatID, username := parseChannelID(channelID)
 	b := &Bot{
-		api:      api,
-		repo:     repo,
-		svc:      svc,
-		store:    store,
-		adminIDs: adminIDs,
-		appURL:   appURL,
-		wizards:  map[int64]*wizard{},
-		msgLog:   map[int64][]int{},
-		fallback: newFallbackState(),
+		api:             api,
+		repo:            repo,
+		svc:             svc,
+		store:           store,
+		adminIDs:        adminIDs,
+		appURL:          appURL,
+		channelChatID:   chatID,
+		channelUsername: username,
+		wizards:         map[int64]*wizard{},
+		msgLog:          map[int64][]int{},
+		fallback:        newFallbackState(),
 	}
 	svc.NotifyNewOrder = b.NotifyNewOrder
 	b.syncMenuButton()
@@ -257,7 +269,7 @@ func (b *Bot) Run() {
 
 func (b *Bot) send(chatID int64, text string) {
 	msg := tgbotapi.NewMessage(chatID, text)
-	m, err := b.api.Send(msg)
+	m, err := b.tgSend(msg)
 	if err != nil {
 		log.Printf("bot send: %v", err)
 		return
@@ -268,7 +280,7 @@ func (b *Bot) send(chatID int64, text string) {
 func (b *Bot) sendKb(chatID int64, text string, kb tgbotapi.InlineKeyboardMarkup) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ReplyMarkup = kb
-	m, err := b.api.Send(msg)
+	m, err := b.tgSend(msg)
 	if err != nil {
 		log.Printf("bot send: %v", err)
 		return
@@ -278,13 +290,13 @@ func (b *Bot) sendKb(chatID int64, text string, kb tgbotapi.InlineKeyboardMarkup
 
 // sendTemp — служебное сообщение, которое самоуничтожается через ttl.
 func (b *Bot) sendTemp(chatID int64, text string, ttl time.Duration) {
-	m, err := b.api.Send(tgbotapi.NewMessage(chatID, text))
+	m, err := b.tgSend(tgbotapi.NewMessage(chatID, text))
 	if err != nil {
 		log.Printf("bot send: %v", err)
 		return
 	}
 	time.AfterFunc(ttl, func() {
-		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(chatID, m.MessageID)); err != nil {
+		if _, err := b.tgRequest(tgbotapi.NewDeleteMessage(chatID, m.MessageID)); err != nil {
 			log.Printf("bot temp delete: %v", err)
 		}
 	})
@@ -300,7 +312,7 @@ func (b *Bot) cleanChat(chatID int64) {
 
 	deleted := 0
 	for _, id := range ids {
-		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(chatID, id)); err == nil {
+		if _, err := b.tgRequest(tgbotapi.NewDeleteMessage(chatID, id)); err == nil {
 			deleted++
 		}
 	}
@@ -310,7 +322,7 @@ func (b *Bot) cleanChat(chatID int64) {
 // editKb — правит текст и клавиатуру существующего сообщения (чистый чат вместо спама).
 func (b *Bot) editKb(chatID int64, msgID int, text string, kb tgbotapi.InlineKeyboardMarkup) {
 	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, kb)
-	if _, err := b.api.Send(edit); err != nil {
+	if _, err := b.tgSend(edit); err != nil {
 		log.Printf("bot edit: %v", err)
 	}
 }
@@ -343,6 +355,7 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 				"/broadcast — 📣 рассылка по клиентам\n"+
 				"/export — 📄 выгрузка заказов в CSV\n"+
 				"/fresh — что сегодня свежее на базе\n"+
+				"/post <id товара> — 📣 пост о товаре в канал\n"+
 				"/fallback on|off — заказ через диалог бота (если Mini App лежит)\n"+
 				"/backup — 💾 выгрузить дамп БД прямо сейчас\n"+
 				"/clean — 🧹 очистить историю чата\n"+
@@ -386,6 +399,8 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 			b.sendBroadcastSegments(msg.Chat.ID)
 		case "export":
 			b.sendExportMenu(msg.Chat.ID)
+		case "post":
+			b.handlePostCommand(msg.Chat.ID, msg.CommandArguments())
 		case "orders":
 			b.sendStatusFilter(msg.Chat.ID)
 		case "preorders":
@@ -412,7 +427,7 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 	b.send(msg.Chat.ID, "Используйте команды: /add /edit /hide /delete /orders")
 }
 
-// handleCustomer — не-админ: deep-link промокоды, кнопка Mini App
+// handleCustomer — не-админ: deep-link промокоды, ответы-отзывы, кнопка Mini App
 // и заказ диалогом, если Mini App недоступен.
 func (b *Bot) handleCustomer(msg *tgbotapi.Message) {
 	// Регистрируем всех, кто написал боту: сегмент «Все» в /broadcast обещает
@@ -447,11 +462,58 @@ func (b *Bot) handleCustomer(msg *tgbotapi.Message) {
 		}
 	}
 
-	// Идёт диалог заказа — ответ клиента относится к нему.
+	// Идёт диалог заказа — ответ клиента относится к нему. Проверяем раньше
+	// отзыва: пока клиент диктует адрес, его сообщения — это заказ, а не
+	// ответ на висящий с прошлой доставки вопрос «Как вам букет?».
 	if b.handleFallbackInput(msg) {
 		return
 	}
+	// Любой текст в течение 48 часов после вопроса «Как вам букет?» — отзыв:
+	// пересылаем админам и дарим одноразовый промокод.
+	if !msg.IsCommand() && strings.TrimSpace(msg.Text) != "" && b.handleFeedbackReply(msg) {
+		return
+	}
 	b.sendShopButton(msg.Chat.ID, "🌸 Добро пожаловать в Flowix!\nВыбирайте букеты в нашем магазине:")
+}
+
+// handleFeedbackReply — текст клиента в окне отзыва (48ч после вопроса):
+// true, если сообщение обработано как отзыв. Каждое сообщение пересылается
+// админам, промокод выдаётся только за первое (guard — responded_at).
+func (b *Bot) handleFeedbackReply(msg *tgbotapi.Message) bool {
+	n, err := b.repo.OpenFeedback(msg.From.ID, model.FeedbackWindow)
+	if err != nil {
+		return false // открытого окна отзыва нет
+	}
+	o, err := b.repo.GetOrder(n.OrderID)
+	if err != nil {
+		log.Printf("отзыв: заказ #%d не найден: %v", n.OrderID, err)
+		return false
+	}
+
+	// Пересылаем отзыв всем админам.
+	report := fmt.Sprintf("%s\nОт: %s · %s\n\n%s",
+		fmt.Sprintf(model.AdminFeedbackHeader, o.ID), orDash(o.User.Name), orDash(o.User.Phone), msg.Text)
+	for _, adminID := range b.adminIDs {
+		b.send(adminID, report)
+	}
+
+	// Промокод — только за первый ответ: responded_at ставится атомарно один раз.
+	first, err := b.repo.MarkFeedbackResponded(n.ID, time.Now())
+	if err != nil {
+		log.Printf("отметка отзыва по заказу #%d: %v", o.ID, err)
+	}
+	if !first {
+		b.send(msg.Chat.ID, model.MsgFeedbackMore)
+		return true
+	}
+	promo, err := b.repo.CreateSingleUsePromo("OTZYV", model.FeedbackPromoPercent)
+	if err != nil {
+		log.Printf("промокод за отзыв (заказ #%d): %v", o.ID, err)
+		b.send(msg.Chat.ID, model.MsgFeedbackMore)
+		return true
+	}
+	b.send(msg.Chat.ID, fmt.Sprintf(model.MsgFeedbackThanks, promo.DiscountPercent, promo.Code))
+	return true
 }
 
 // webAppKeyboard — inline-клавиатура с кнопкой web_app (запуск Mini App).
@@ -497,7 +559,7 @@ func (b *Bot) sendShopButton(chatID int64, text string) {
 		rows = append(rows, []webAppButton{btn})
 	}
 	msg.ReplyMarkup = webAppKeyboard{InlineKeyboard: rows}
-	if _, err := b.api.Send(msg); err != nil {
+	if _, err := b.tgSend(msg); err != nil {
 		log.Printf("bot send: %v", err)
 	}
 }
@@ -528,20 +590,28 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 		return
 	}
 
-	// Сжатое фото не принимаем: Telegram ужимает его до ~1280px, на витрине это мыло.
-	if len(msg.Photo) > 0 {
-		b.send(chatID, sendAsFileHint)
-		return
-	}
-
-	// Фото готового букета: пересылаем клиенту по file_id, без скачивания.
-	if msg.Document != nil && w.mode == "order_photo" {
-		if !isImageDocument(msg.Document) {
-			b.send(chatID, "Это не изображение. "+sendAsFileHint)
+	// Фото букета по заказу: принимаем и обычное фото, и файл — храним только
+	// telegram file_id, пересылаем клиенту без скачивания.
+	if w.mode == "order_photo" && (len(msg.Photo) > 0 || msg.Document != nil) {
+		var fileID string
+		var isDoc bool
+		switch {
+		case len(msg.Photo) > 0:
+			fileID = msg.Photo[len(msg.Photo)-1].FileID // последний размер — самый крупный
+		case isImageDocument(msg.Document):
+			fileID, isDoc = msg.Document.FileID, true
+		default:
+			b.send(chatID, "Это не изображение. Пришлите фото букета или /cancel.")
 			return
 		}
 		b.clearWizard(chatID)
-		b.sendBouquetPhoto(chatID, w.orderID, msg.Document.FileID)
+		b.handleOrderPhoto(chatID, w, fileID, isDoc)
+		return
+	}
+
+	// Сжатое фото товара не принимаем: Telegram ужимает его до ~1280px, на витрине это мыло.
+	if len(msg.Photo) > 0 {
+		b.send(chatID, sendAsFileHint)
 		return
 	}
 
@@ -594,9 +664,9 @@ func (b *Bot) wizardInput(msg *tgbotapi.Message, w *wizard) {
 			b.editOrderCard(chatID, w.msgID, updated)
 		}
 		b.send(chatID, fmt.Sprintf("❌ Заказ #%d отменён: %s", updated.ID, text))
-		b.notifyCustomerStatus(updated.ID, model.StatusCancelled)
+		b.notifyCustomerStatus(updated.ID)
 	case "order_photo":
-		b.send(chatID, "Жду фото букета файлом. Или /cancel для отмены.")
+		b.send(chatID, "Жду фото букета. Или /cancel для отмены.")
 	case "edit_text":
 		p, err := b.repo.GetProduct(w.productID)
 		if err != nil {
@@ -797,7 +867,7 @@ func categoryKeyboard(prefix string) tgbotapi.InlineKeyboardMarkup {
 
 func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 	defer func() {
-		if _, err := b.api.Request(tgbotapi.NewCallback(cb.ID, "")); err != nil {
+		if _, err := b.tgRequest(tgbotapi.NewCallback(cb.ID, "")); err != nil {
 			log.Printf("callback ack: %v", err)
 		}
 	}()
@@ -1112,12 +1182,12 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			}
 			// Карточку редактируем на месте — чат остаётся чистым.
 			b.editOrderCard(chatID, cb.Message.MessageID, updated)
-			b.notifyCustomerStatus(id, next)
+			b.notifyCustomerStatus(id)
 		case "cancel":
 			b.setWizard(chatID, &wizard{mode: "cancel_reason", orderID: id, msgID: cb.Message.MessageID})
 			reply := tgbotapi.NewMessage(chatID, fmt.Sprintf("Причина отмены заказа #%d (коротко):", id))
 			reply.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, InputFieldPlaceholder: "например: клиент передумал"}
-			if _, err := b.api.Send(reply); err != nil {
+			if _, err := b.tgSend(reply); err != nil {
 				log.Printf("bot send: %v", err)
 			}
 		}
@@ -1133,14 +1203,14 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		b.sendStatusFilter(chatID)
 
 	case "x": // убрать одно сообщение
-		if _, err := b.api.Request(tgbotapi.NewDeleteMessage(chatID, cb.Message.MessageID)); err != nil {
+		if _, err := b.tgRequest(tgbotapi.NewDeleteMessage(chatID, cb.Message.MessageID)); err != nil {
 			log.Printf("bot delete: %v", err)
 		}
 
 	case "clean": // очистить историю диалога
 		b.cleanChat(chatID)
 
-	case "ophoto": // фото готового букета → клиенту
+	case "ophoto": // фото букета → сохранить на заказе и отправить клиенту
 		id := argAt(1)
 		o, err := b.repo.GetOrder(id)
 		if err != nil {
@@ -1151,8 +1221,22 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			b.send(chatID, "У клиента нет Telegram ID (заказ оформлен вне Telegram) — фото отправить некому.")
 			return
 		}
-		b.setWizard(chatID, &wizard{mode: "order_photo", orderID: id})
-		b.send(chatID, fmt.Sprintf("📷 Фото букета для заказа #%d — отправлю его клиенту.\n\n%s\n\n/cancel — отмена.", id, sendAsFileHint))
+		b.setWizard(chatID, &wizard{mode: "order_photo", orderID: id, msgID: cb.Message.MessageID})
+		kind := "сборки"
+		if model.PhotoTypeForStatus(o.Status) == model.PhotoDelivered {
+			kind = "вручения"
+		}
+		ask := tgbotapi.NewMessage(chatID, fmt.Sprintf(
+			"📷 Пришлите фото %s букета для заказа #%d — сохраню его на заказе и сразу отправлю клиенту.\n/cancel — отмена.", kind, id))
+		ask.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, InputFieldPlaceholder: "фото букета"}
+		if m, err := b.tgSend(ask); err != nil {
+			log.Printf("bot send: %v", err)
+		} else {
+			b.remember(chatID, m.MessageID)
+		}
+
+	case "chpub": // подтверждённая публикация поста о товаре в канал
+		b.publishProductPost(chatID, argAt(1))
 
 	case "noop":
 		// отмена подтверждения — ничего не делаем
@@ -1533,52 +1617,73 @@ func (b *Bot) saveFresh(chatID int64, items string) {
 	b.send(chatID, "✅ «Сегодня на базе»: "+items)
 }
 
-// sendBouquetPhoto — отправляет фото готового букета клиенту по заказу.
-func (b *Bot) sendBouquetPhoto(chatID int64, orderID uint, fileID string) {
-	o, err := b.repo.GetOrder(orderID)
+// handleOrderPhoto — фото букета от админа: сохраняем file_id на заказе
+// (тип по текущему статусу: собран/вручён) и мгновенно шлём клиенту с подписью.
+func (b *Bot) handleOrderPhoto(chatID int64, w *wizard, fileID string, isDoc bool) {
+	o, err := b.repo.GetOrder(w.orderID)
 	if err != nil {
 		log.Printf("get order: %v", err)
 		b.send(chatID, "Ошибка: заказ не найден.")
 		return
 	}
 
-	// Отправляем фото клиенту (по его TelegramID).
-	if o.User.TelegramID == 0 {
-		b.send(chatID, "У клиента нет Telegram ID — фото отправить некому.")
-		return
-	}
-	// Шлём документом, а не фото: sendPhoto пересжал бы снимок и клиент увидел
-	// мыло вместо своего букета. Telegram показывает картинку-документ с превью.
-	doc := tgbotapi.NewDocument(o.User.TelegramID, tgbotapi.FileID(fileID))
-	doc.Caption = fmt.Sprintf("🌸 Ваш букет к заказу #%d готов!", o.ID)
-	if _, err := b.api.Send(doc); err != nil {
-		log.Printf("send photo to customer: %v", err)
-		b.send(chatID, "Не удалось отправить фото клиенту (возможно, он не запускал бота).")
+	photoType := model.PhotoTypeForStatus(o.Status)
+	if err := b.repo.AddOrderPhoto(&model.OrderPhoto{
+		OrderID: o.ID, Type: photoType, FileID: fileID, IsDocument: isDoc,
+	}); err != nil {
+		log.Printf("save order photo: %v", err)
+		b.send(chatID, "Не удалось сохранить фото: "+err.Error())
 		return
 	}
 
-	// Статус двигаем только если фото — следующий шаг конвейера (из «Собираем»);
-	// иначе статус не трогаем, фото просто ушло клиенту.
-	if model.AllowedTransition(o.Status, model.StatusPhotoSent) {
-		if _, err := b.svc.TransitionOrder(o.ID, model.StatusPhotoSent, chatID, ""); err != nil {
-			log.Printf("update status after photo: %v", err)
-		}
-		b.send(chatID, fmt.Sprintf("✅ Фото отправлено клиенту, заказ #%d → %s.", o.ID, model.StatusLabels[model.StatusPhotoSent]))
+	if o.User.TelegramID == 0 {
+		b.send(chatID, "Фото сохранено, но у клиента нет Telegram ID — отправить некому.")
 		return
 	}
-	b.send(chatID, fmt.Sprintf("✅ Фото отправлено клиенту заказа #%d.", o.ID))
+	caption, _ := model.PhotoCaption(photoType, o.ID)
+	// file_id документа отправляется только через sendDocument (и наоборот) —
+	// документ Telegram показывает картинкой с превью, без пересжатия.
+	var media tgbotapi.Chattable
+	if isDoc {
+		doc := tgbotapi.NewDocument(o.User.TelegramID, tgbotapi.FileID(fileID))
+		doc.Caption = caption
+		media = doc
+	} else {
+		ph := tgbotapi.NewPhoto(o.User.TelegramID, tgbotapi.FileID(fileID))
+		ph.Caption = caption
+		media = ph
+	}
+	if _, err := b.tgSend(media); err != nil {
+		log.Printf("send photo to customer: %v", err)
+		b.send(chatID, "Фото сохранено, но отправить клиенту не удалось (возможно, он не запускал бота).")
+		return
+	}
+
+	// Фото сборки двигает конвейер на «Фото отправлено», если это следующий шаг;
+	// иначе статус не трогаем — фото просто сохранено и ушло клиенту.
+	if photoType == model.PhotoAssembled && model.AllowedTransition(o.Status, model.StatusPhotoSent) {
+		updated, err := b.svc.TransitionOrder(o.ID, model.StatusPhotoSent, chatID, "")
+		if err != nil {
+			log.Printf("update status after photo: %v", err)
+		} else if w.msgID != 0 {
+			b.editOrderCard(chatID, w.msgID, updated)
+		}
+		b.send(chatID, fmt.Sprintf("✅ Фото сохранено и отправлено клиенту, заказ #%d → %s.", o.ID, model.StatusLabels[model.StatusPhotoSent]))
+		return
+	}
+	b.send(chatID, fmt.Sprintf("✅ Фото сохранено и отправлено клиенту заказа #%d.", o.ID))
 }
 
 // notifyCustomerStatus — отправляет клиенту уведомление о смене статуса заказа.
-// Текст собирает model.ClientStatusText: подстановка номера только там, где она есть в шаблоне.
-func (b *Bot) notifyCustomerStatus(orderID uint, status string) {
-	text, ok := model.ClientStatusText(status, orderID)
-	if !ok {
-		return
-	}
+// Тексты — в model/texts.go; учитываются подарок (открытка/анонимность) и причина отмены.
+func (b *Bot) notifyCustomerStatus(orderID uint) {
 	o, err := b.repo.GetOrder(orderID)
 	if err != nil {
 		log.Printf("get order for status notification: %v", err)
+		return
+	}
+	text, ok := model.ClientOrderStatusText(o)
+	if !ok {
 		return
 	}
 	if o.User.TelegramID == 0 {

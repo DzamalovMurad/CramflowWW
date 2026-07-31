@@ -78,7 +78,7 @@ func (b *Bot) sendExport(chatID int64, period string) {
 	doc := tgbotapi.NewDocument(chatID, tgbotapi.FileBytes{Name: name, Bytes: data})
 	doc.Caption = fmt.Sprintf("📄 %s · заказов: %s",
 		exportLabels[period], model.FormatNumber(int64(len(rows))))
-	m, err := b.api.Send(doc)
+	m, err := b.tgSend(doc)
 	if err != nil {
 		b.send(chatID, "Не удалось отправить файл: "+err.Error())
 		return

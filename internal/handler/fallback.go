@@ -252,7 +252,7 @@ func (b *Bot) handleFallbackCallback(cb *tgbotapi.CallbackQuery) bool {
 func (b *Bot) askReply(chatID int64, text, placeholder string) {
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ReplyMarkup = tgbotapi.ForceReply{ForceReply: true, InputFieldPlaceholder: placeholder}
-	if _, err := b.api.Send(msg); err != nil {
+	if _, err := b.tgSend(msg); err != nil {
 		log.Printf("bot send: %v", err)
 	}
 }

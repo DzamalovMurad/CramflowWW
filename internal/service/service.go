@@ -4,9 +4,11 @@ package service
 import (
 	"errors"
 	"fmt"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -64,8 +66,10 @@ type OrderInput struct {
 	PromoCode       string           `json:"promo_code"`
 	RecipientName   string           `json:"recipient_name"` // если букет везут не заказчику
 	RecipientPhone  string           `json:"recipient_phone"`
-	// Source — канал привлечения из Mini App (start_param / ?src=).
-	// Значение клиентское, поэтому нормализуется перед записью.
+	// Source — канал привлечения. Приоритет у startapp-параметра из подписанной
+	// initData (его подставляет хендлер, подделать нельзя); поле из тела запроса
+	// остаётся запасным вариантом для входа с сайта по ?src=, где initData нет.
+	// В любом случае значение клиентское — NormalizeSource перед записью.
 	Source string `json:"source"`
 	// TelegramID заполняется хендлером из initData, не клиентом.
 	TelegramID int64 `json:"-"`
@@ -125,6 +129,14 @@ func (s *Service) CreateOrder(in OrderInput) (*model.Order, error) {
 	user, err := s.Repo.UpsertUser(in.TelegramID, in.Name, in.Phone)
 	if err != nil {
 		return nil, err
+	}
+	// Метку канала приводим к каноническому виду один раз: и заказ, и first-touch
+	// клиента должны попасть в отчёт под одним и тем же значением.
+	source := model.NormalizeSource(in.Source)
+	// First-touch источник: если клиент впервые попал к нам через checkout
+	// (не открывал профиль/главную с трекингом), фиксируем источник здесь же.
+	if in.Source != "" {
+		_ = s.Repo.SetUserAcquisitionSource(user.ID, source)
 	}
 
 	// Собираем позиции по ценам из БД — клиентским ценам не доверяем.
@@ -186,7 +198,7 @@ func (s *Service) CreateOrder(in OrderInput) (*model.Order, error) {
 		IsAnonymous:     in.IsAnonymous,
 		RecipientName:   in.RecipientName,
 		RecipientPhone:  in.RecipientPhone,
-		Source:          model.NormalizeSource(in.Source),
+		Source:          source,
 		Status:          model.StatusNew,
 		Items:           items,
 	}
@@ -226,6 +238,13 @@ func (s *Service) TransitionOrder(orderID uint, to string, adminID int64, cancel
 			return nil, invalid("статус заказа уже изменился — обновите карточку")
 		}
 		return nil, err
+	}
+	// Доставлен → через 2 часа спросим про букет. План живёт в БД (notifications),
+	// так что перезапуск сервиса ничего не теряет; дубликаты гасит уникальный индекс.
+	if to == model.StatusDelivered {
+		if err := s.Repo.ScheduleNotification(orderID, model.NotificationFeedback, time.Now().Add(model.FeedbackDelay)); err != nil {
+			log.Printf("планирование отзыва по заказу #%d: %v", orderID, err)
+		}
 	}
 	return s.Repo.GetOrder(orderID)
 }
