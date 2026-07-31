@@ -79,7 +79,7 @@ web/                  — Mini App
 | `PUBLIC_URL` | из `RAILWAY_PUBLIC_DOMAIN` | публичный https-адрес: Mini App, webhook, кнопка меню | на Railway подставится сам; иначе бот уйдёт в long polling, кнопка меню не настроится |
 | `TELEGRAM_WEBHOOK_SECRET` | генерируется | секрет пути и заголовка `X-Telegram-Bot-Api-Secret-Token` | сгенерируется временный: после каждого рестарта webhook перерегистрируется |
 | `BOT_MODE` | `webhook` | `webhook` или `polling` | webhook; без `PUBLIC_URL` автоматически откатится в polling |
-| `UPLOAD_STORE` | `db` | где хранить фото товаров: `db` или `local` | фото в БД — переживают редеплой без Volume |
+| `UPLOAD_STORE` | `db` | где хранить фото товаров: `db` или `local` | фото в БД — переживают редеплой без Volume. Ставьте `local`, только если к сервису **подключён Volume** на `/app/uploads`: тогда фото лежат файлами на нём |
 | `UPLOAD_DIR` | `./uploads` | папка для фото при `UPLOAD_STORE=local` | `./uploads`; **без Railway Volume фото пропадут при редеплое** |
 | `WEB_DIST` | `./web/dist` | собранный фронтенд | в Docker-образе выставлен автоматически |
 | `PORT` | `8080` | порт HTTP-сервера | Railway подставляет свой |
@@ -129,6 +129,8 @@ web/                  — Mini App
      (`openssl rand -hex 24`)
 4. **Settings → Networking → Generate Domain**. `PUBLIC_URL` задавать не нужно:
    сервис берёт домен из `RAILWAY_PUBLIC_DOMAIN` автоматически.
+   Если к сервису подключён Volume на `/app/uploads` и на нём уже лежат фото
+   товаров — добавьте `UPLOAD_STORE=local`, иначе старые фото не найдутся.
 5. Дождитесь деплоя. Healthcheck `/api/health` должен стать зелёным — он
    проверяет реальное соединение с БД, а не просто отвечает «ok».
 
@@ -148,12 +150,13 @@ railway run ./flowix -seed
 
 ## Шаг 3. Привязка Mini App
 
-В @BotFather:
+Кнопку меню бот настраивает себе сам при старте — она ведёт на `PUBLIC_URL`
+(в логах строка «кнопка меню бота ведёт на Mini App»). Проверить можно в
+@BotFather: **Bot Settings → Menu Button**.
 
-1. `/setdomain` → выберите бота → отправьте домен приложения без схемы
-   (`xxx.up.railway.app`). **Без этого шага Mini App не откроется.**
-2. Кнопку меню бот настраивает себе сам при старте — она ведёт на `PUBLIC_URL`.
-   Проверить: **Bot Settings → Menu Button**.
+Если Mini App почему-то не открывается, в @BotFather выполните
+`/setdomain` → выберите бота → отправьте домен без схемы
+(`xxx.up.railway.app`).
 
 Deep-link с промокодом: `https://t.me/<username_бота>?start=WELCOME10` —
 код закрепляется за клиентом и применяется при оформлении автоматически.
