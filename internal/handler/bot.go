@@ -190,7 +190,7 @@ func NewBot(token string, adminIDs []int64, appURL, channelID string, repo *repo
 	if err != nil {
 		return nil, err
 	}
-	// Хостинг может отдавать адрес без схемы (Render: flowix.onrender.com),
+	// Railway отдаёт адрес без схемы (RAILWAY_PUBLIC_DOMAIN: flowix.up.railway.app),
 	// а web_app-кнопке нужен полный https-URL.
 	appURL = strings.TrimSuffix(strings.TrimSpace(appURL), "/")
 	if appURL != "" && !strings.Contains(appURL, "://") {

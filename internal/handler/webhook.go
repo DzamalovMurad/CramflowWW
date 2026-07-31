@@ -35,7 +35,7 @@ func (b *Bot) SetupWebhook(baseURL, secret string) error {
 	if baseURL == "" {
 		return fmt.Errorf("webhook: не задан публичный адрес сервиса")
 	}
-	// Хостинг может отдавать адрес без схемы (например, Render: flowix.onrender.com).
+	// Railway отдаёт адрес без схемы (RAILWAY_PUBLIC_DOMAIN: flowix.up.railway.app).
 	if !strings.Contains(baseURL, "://") {
 		baseURL = "https://" + baseURL
 	}
