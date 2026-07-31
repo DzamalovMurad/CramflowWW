@@ -41,11 +41,14 @@ type Bot struct {
 	cfg   *config.Config
 	log   *slog.Logger
 
-	// Состояние визардов /add и /edit. В режиме webhook апдейты обрабатываются
-	// параллельно, поэтому доступ обязан быть под мьютексом: конкурентная
-	// запись в map в Go — фатальная ошибка, а не паника, её нельзя перехватить.
+	// Состояние визардов /add и /edit. Конкурентная запись в map в Go —
+	// фатальная ошибка, а не паника, перехватить её нельзя.
 	wizMu   sync.Mutex
 	wizards map[int64]*wizard
+
+	// chats сериализует обработку апдейтов одного чата: черновик визарда
+	// мутируется вне wizMu, а в режиме webhook апдейты идут параллельно.
+	chats *chatLocks
 
 	// Журнал сообщений в админ-чатах для /clean.
 	logMu  sync.Mutex
@@ -99,6 +102,7 @@ func NewBot(cfg *config.Config, log *slog.Logger, repo *repository.Repository, s
 		cfg:     cfg,
 		log:     log.With("component", "bot", "bot_username", api.Self.UserName),
 		wizards: map[int64]*wizard{},
+		chats:   newChatLocks(),
 		msgLog:  map[int64][]int{},
 		done:    make(chan struct{}),
 		polling: cfg.BotMode == "polling",
@@ -214,12 +218,28 @@ func (b *Bot) dispatch(update tgbotapi.Update) {
 	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
 	defer cancel()
 
+	// Апдейты одного чата обрабатываем строго по очереди — см. chatLocks.
+	if chatID := updateChatID(update); chatID != 0 {
+		defer b.chats.Lock(chatID)()
+	}
+
 	switch {
 	case update.CallbackQuery != nil:
 		b.handleCallback(ctx, log, update.CallbackQuery)
 	case update.Message != nil:
 		b.handleMessage(ctx, log, update.Message)
 	}
+}
+
+// updateChatID — чат, к которому относится апдейт (0, если определить нельзя).
+func updateChatID(u tgbotapi.Update) int64 {
+	switch {
+	case u.CallbackQuery != nil && u.CallbackQuery.Message != nil && u.CallbackQuery.Message.Chat != nil:
+		return u.CallbackQuery.Message.Chat.ID
+	case u.Message != nil && u.Message.Chat != nil:
+		return u.Message.Chat.ID
+	}
+	return 0
 }
 
 // ─── Отправка с ретраями ───────────────────────────────────────────────────

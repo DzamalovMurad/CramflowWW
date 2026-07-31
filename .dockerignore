@@ -1,0 +1,22 @@
+# Контекст сборки должен содержать только исходники: без этого в образ
+# уезжают история git и node_modules, а сборка идёт заметно дольше.
+.git
+.gitignore
+.dockerignore
+
+# Секреты — никогда
+.env
+.env.*
+!.env.example
+
+# Артефакты, которые Docker собирает сам
+web/node_modules
+web/dist
+/flowix
+/bin
+
+# Документация и вспомогательное
+*.md
+uploads/
+*.log
+.DS_Store
