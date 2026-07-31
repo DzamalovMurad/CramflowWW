@@ -8,7 +8,7 @@ import { fetchProduct, fetchProducts } from '../api';
 import { useCart } from '../cart';
 import { haptic } from '../telegram';
 import { content } from '../content';
-import { formatPrice, type ProductCard } from '../types';
+import { formatPrice, inStock, type ProductCard } from '../types';
 
 /** Каталог: поиск + категории + быстрые фильтры + editorial-сетка. */
 export default function Catalog() {
@@ -49,9 +49,9 @@ export default function Catalog() {
 
   // В корзину с карточки уходит самый доступный вариант букета.
   const addCheapest = async (card: ProductCard) => {
-    const product = await fetchProduct(card.id);
-    const variant = product.variants[0];
-    if (!variant) return;
+    const product = await fetchProduct(card.id).catch(() => null);
+    const variant = product?.variants[0];
+    if (!product || !variant || !inStock(product)) return;
     add({
       variantId: variant.id,
       productId: product.id,

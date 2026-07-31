@@ -3,11 +3,18 @@ import { MenuHeader } from '../components/Header';
 import CategoryChips from '../components/CategoryChips';
 import FilterPills from '../components/FilterPills';
 import ProductCardView from '../components/ProductCardView';
-import { fetchAllProducts, fetchProduct, fetchProducts, fetchFreshToday } from '../api';
+import { Link } from 'react-router-dom';
+import {
+  fetchAllProducts,
+  fetchFreshToday,
+  fetchMyOrders,
+  fetchProduct,
+  fetchProducts,
+} from '../api';
 import { useCart } from '../cart';
 import { haptic } from '../telegram';
-import { content } from '../content';
-import { formatPrice, type ProductCard } from '../types';
+import { ACTIVE_STATUSES, content, statusLabels } from '../content';
+import { formatDate, formatPrice, inStock, type Order, type ProductCard } from '../types';
 import { IconSort } from '../components/icons';
 
 const c = content.home;
@@ -27,6 +34,7 @@ export default function Home() {
   const [products, setProducts] = useState<ProductCard[] | null>(null);
   const [error, setError] = useState('');
   const [freshToday, setFreshToday] = useState<string | null>(null);
+  const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const { add } = useCart();
 
   // Без фильтров берём прогретый лоадером кэш — сетка появляется мгновенно.
@@ -49,6 +57,13 @@ export default function Home() {
       .catch(() => {});
   }, []);
 
+  // Состояние активного заказа должно быть видно сразу, без вопросов менеджеру.
+  useEffect(() => {
+    fetchMyOrders()
+      .then((list) => setActiveOrder(list.find((o) => ACTIVE_STATUSES.includes(o.status)) ?? null))
+      .catch(() => {});
+  }, []);
+
   // Баннеры: следим за скроллом карусели для точек-индикаторов.
   const bannerRef = useRef<HTMLDivElement>(null);
   const [bannerIdx, setBannerIdx] = useState(0);
@@ -58,9 +73,9 @@ export default function Home() {
   };
 
   const addCheapest = async (card: ProductCard) => {
-    const product = await fetchProduct(card.id);
-    const variant = product.variants[0];
-    if (!variant) return;
+    const product = await fetchProduct(card.id).catch(() => null);
+    const variant = product?.variants[0];
+    if (!product || !variant || !inStock(product)) return;
     add({
       variantId: variant.id,
       productId: product.id,
@@ -96,6 +111,26 @@ export default function Home() {
   return (
     <div className="pb-24">
       <MenuHeader />
+
+      {/* АКТИВНЫЙ ЗАКАЗ — статус на виду, без вопросов менеджеру */}
+      {activeOrder && (
+        <Link
+          to="/profile"
+          className="animate-fade-in mx-4 mt-3 flex min-h-[56px] items-center justify-between gap-3 rounded-card border border-accent/40 bg-accent/10 px-4 py-3"
+        >
+          <span className="min-w-0">
+            <span className="label block !text-[10px]">
+              {c.activeOrder} #{activeOrder.id}
+            </span>
+            <span className="mt-0.5 block truncate text-[14px] font-bold lowercase">
+              {statusLabels[activeOrder.status] ?? activeOrder.status_label}
+            </span>
+          </span>
+          <span className="whitespace-nowrap text-[12px] lowercase text-muted">
+            {formatDate(activeOrder.delivery_date)}, {activeOrder.delivery_time}
+          </span>
+        </Link>
+      )}
 
       {/* БАННЕРЫ */}
       <section className="px-4 pt-3">
@@ -147,7 +182,7 @@ export default function Home() {
               haptic('light');
               setSheetOpen(true);
             }}
-            className={`mb-3 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border ${
+            className={`mb-2 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border ${
               sort ? 'border-transparent bg-accent text-on-accent' : 'border-line bg-surface text-ink'
             }`}
           >
@@ -206,7 +241,7 @@ export default function Home() {
                 setCategory('WOW');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              className="text-[13px] font-bold lowercase text-accent-2"
+              className="-mr-2 flex min-h-[44px] items-center px-2 text-[13px] font-bold lowercase text-accent-2"
             >
               {c.shelfAll} {shelf.length} →
             </button>
@@ -246,7 +281,7 @@ export default function Home() {
                     setSort(value);
                     setSheetOpen(false);
                   }}
-                  className="flex w-full items-center justify-between py-3.5"
+                  className="flex min-h-[52px] w-full items-center justify-between"
                 >
                   <span className={`text-[15px] lowercase ${active ? 'font-bold' : 'text-muted'}`}>
                     {label}

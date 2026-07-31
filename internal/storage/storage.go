@@ -1,8 +1,9 @@
-// Package storage — единственная абстракция проекта: куда складывать фото.
-// Сейчас — локальная папка (Railway Volume), потом можно добавить S3/R2.
+// Package storage — единственная абстракция проекта: куда складывать фото товаров.
+// Реализации: Postgres (по умолчанию, не требует диска) и Local (папка/Volume).
 package storage
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -13,13 +14,16 @@ import (
 
 // Storage сохраняет файл и возвращает публичный URL-путь (например /uploads/xxx.jpg).
 type Storage interface {
-	Save(name string, r io.Reader) (url string, err error)
+	Save(ctx context.Context, name string, r io.Reader) (url string, err error)
 }
 
-// Local хранит файлы в папке на диске; отдаются самим HTTP-сервером по baseURL.
+// MaxUploadBytes — предел, до которого Telegram вообще отдаёт файлы ботам.
+const MaxUploadBytes = 20 << 20
+
+// Local хранит файлы в папке на диске; отдаются HTTP-сервером по BaseURL.
 type Local struct {
-	Dir     string // папка на диске, например ./uploads
-	BaseURL string // префикс URL, например /uploads
+	Dir     string
+	BaseURL string
 }
 
 func NewLocal(dir, baseURL string) (*Local, error) {
@@ -29,27 +33,39 @@ func NewLocal(dir, baseURL string) (*Local, error) {
 	return &Local{Dir: dir, BaseURL: strings.TrimSuffix(baseURL, "/")}, nil
 }
 
-func (l *Local) Save(name string, r io.Reader) (string, error) {
-	ext := filepath.Ext(name)
+func (l *Local) Save(_ context.Context, name string, r io.Reader) (string, error) {
+	raw, err := readLimited(r)
+	if err != nil {
+		return "", err
+	}
 	// Готовим снимок к витрине так же, как в БД-хранилище (см. image.go).
-	data, newExt, err := PrepareImage(r)
+	data, ext, err := PrepareImage(raw, filepath.Ext(name))
 	if err != nil {
 		return "", err
 	}
-	if newExt != "" {
-		ext = newExt
-	}
-	if ext == "" {
-		ext = ".jpg"
-	}
+
 	fname := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
-	dst, err := os.Create(filepath.Join(l.Dir, fname))
-	if err != nil {
-		return "", err
+	// Пишем во временный файл и переименовываем: оборванная загрузка
+	// не оставит на диске битую картинку под рабочим именем.
+	tmp := filepath.Join(l.Dir, "."+fname+".part")
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return "", fmt.Errorf("storage: запись файла: %w", err)
 	}
-	defer dst.Close()
-	if _, err := dst.Write(data); err != nil {
-		return "", err
+	if err := os.Rename(tmp, filepath.Join(l.Dir, fname)); err != nil {
+		_ = os.Remove(tmp)
+		return "", fmt.Errorf("storage: сохранение файла: %w", err)
 	}
 	return l.BaseURL + "/" + fname, nil
+}
+
+// readLimited читает не больше MaxUploadBytes и честно сообщает о превышении.
+func readLimited(r io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, MaxUploadBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("storage: чтение файла: %w", err)
+	}
+	if len(data) > MaxUploadBytes {
+		return nil, fmt.Errorf("storage: фото больше %d МБ", MaxUploadBytes>>20)
+	}
+	return data, nil
 }

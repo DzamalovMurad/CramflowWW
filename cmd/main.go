@@ -1,226 +1,263 @@
+// Команда flowix — единый бинарник магазина: HTTP API, статика Mini App,
+// Telegram-бот и фоновые задания.
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
-	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
-	"strconv"
-	"strings"
+	"os/signal"
+	"sync"
+	"syscall"
 	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	glogger "gorm.io/gorm/logger"
 
+	"github.com/dzamalovmurad/cramflowww/internal/backup"
+	"github.com/dzamalovmurad/cramflowww/internal/config"
 	"github.com/dzamalovmurad/cramflowww/internal/handler"
-	"github.com/dzamalovmurad/cramflowww/internal/model"
+	"github.com/dzamalovmurad/cramflowww/internal/migrate"
 	"github.com/dzamalovmurad/cramflowww/internal/repository"
 	"github.com/dzamalovmurad/cramflowww/internal/service"
 	"github.com/dzamalovmurad/cramflowww/internal/storage"
+	"github.com/dzamalovmurad/cramflowww/migrations"
 )
 
+// shutdownGrace — сколько даём на завершение начатых запросов и отправок.
+const shutdownGrace = 20 * time.Second
+
 func main() {
-	seed := flag.Bool("seed", false, "заполнить БД тестовыми данными и выйти")
+	seed := flag.Bool("seed", false, "заполнить пустую БД демо-товарами и выйти")
+	backupNow := flag.Bool("backup", false, "снять резервную копию, отправить админам и выйти")
 	flag.Parse()
 
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		log.Fatal("DATABASE_URL не задан")
+	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(log)
+
+	if err := run(log, *seed, *backupNow); err != nil {
+		log.Error("сервис остановлен с ошибкой", "err", err)
+		os.Exit(1)
+	}
+}
+
+func run(log *slog.Logger, seed, backupNow bool) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
 	}
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Warn),
+	db, err := openDB(cfg, log)
+	if err != nil {
+		return err
+	}
+	defer closeDB(db, log)
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+
+	// Единственный механизм миграций: SQL-файлы из migrations/, вшитые в бинарник.
+	migCtx, cancelMig := context.WithTimeout(context.Background(), 2*time.Minute)
+	err = migrate.Run(migCtx, sqlDB, migrations.FS, log)
+	cancelMig()
+	if err != nil {
+		return err
+	}
+
+	repo := repository.New(db, cfg.Now)
+	svc := service.New(repo, cfg, log)
+
+	if seed {
+		return runSeed(context.Background(), repo, log)
+	}
+
+	store, uploads, err := newStorage(cfg, db, log)
+	if err != nil {
+		return err
+	}
+
+	var bot *handler.Bot
+	if cfg.BotEnabled() {
+		if bot, err = handler.NewBot(cfg, log, repo, svc, store); err != nil {
+			return err
+		}
+		if len(cfg.AdminIDs) == 0 {
+			log.Warn("TELEGRAM_ADMIN_IDS не заданы — админ-команды и уведомления о заказах недоступны")
+		}
+	} else {
+		log.Warn("TELEGRAM_BOT_TOKEN не задан — запуск без бота, оформление заказов работать не будет")
+	}
+
+	if backupNow {
+		if bot == nil {
+			return errors.New("резервная копия отправляется в Telegram: нужны TELEGRAM_BOT_TOKEN и TELEGRAM_ADMIN_IDS")
+		}
+		runner := &backup.Runner{
+			DatabaseURL: cfg.DatabaseURL, Location: cfg.Location,
+			Hour: cfg.BackupHour, Sender: bot, Log: log,
+		}
+		return runner.Once(context.Background())
+	}
+
+	api := &handler.API{Repo: repo, Service: svc, Cfg: cfg, Log: log, Uploads: uploads}
+	defer api.Close()
+
+	// Контекст жизни процесса: отменяется по SIGINT/SIGTERM (Railway шлёт SIGTERM).
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	var wg sync.WaitGroup
+	if bot != nil {
+		if err := startBot(&wg, cfg, api, bot, log); err != nil {
+			return err
+		}
+		if cfg.BackupEnabled {
+			runner := &backup.Runner{
+				DatabaseURL: cfg.DatabaseURL, Location: cfg.Location,
+				Hour: cfg.BackupHour, Sender: bot, Log: log,
+			}
+			wg.Add(1)
+			go func() { defer wg.Done(); runner.Run(ctx) }()
+		}
+	}
+
+	srv := &http.Server{
+		Addr:    ":" + cfg.Port,
+		Handler: api.Routes(),
+		// Без этих таймаутов достаточно нескольких «медленных» соединений,
+		// чтобы занять все горутины сервера.
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	serveErr := make(chan error, 1)
+	go func() {
+		log.Info("HTTP-сервер запущен",
+			"port", cfg.Port, "public_url", cfg.PublicURL,
+			"bot_mode", cfg.BotMode, "upload_store", cfg.UploadStore, "tz", cfg.Location.String())
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErr <- err
+			return
+		}
+		serveErr <- nil
+	}()
+
+	select {
+	case err := <-serveErr:
+		return err
+	case <-ctx.Done():
+		log.Info("получен сигнал остановки, завершаем начатое")
+	}
+
+	// Сначала перестаём принимать новое и даём доиграть текущим запросам,
+	// потом останавливаем бота и фоновые задания.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Error("HTTP-сервер не завершился штатно", "err", err)
+	}
+	if bot != nil {
+		bot.Stop(shutdownCtx)
+	}
+
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-shutdownCtx.Done():
+		log.Warn("фоновые задания не успели завершиться")
+	}
+	log.Info("сервис остановлен")
+	return nil
+}
+
+// openDB подключается к Postgres и настраивает пул.
+func openDB(cfg *config.Config, log *slog.Logger) (*gorm.DB, error) {
+	db, err := gorm.Open(postgres.Open(cfg.DatabaseURL), &gorm.Config{
+		Logger: glogger.Default.LogMode(glogger.Warn),
+		// FK и индексы создают миграции; GORM не должен трогать схему.
+		DisableForeignKeyConstraintWhenMigrating: true,
 	})
 	if err != nil {
-		log.Fatalf("подключение к БД: %v", err)
+		return nil, err
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+	// Небольшой пул: нагрузка магазина измеряется десятками запросов в минуту,
+	// а лишние соединения только жгут лимиты управляемого Postgres.
+	sqlDB.SetMaxOpenConns(10)
+	sqlDB.SetMaxIdleConns(4)
+	sqlDB.SetConnMaxIdleTime(5 * time.Minute)
+	sqlDB.SetConnMaxLifetime(30 * time.Minute)
 
-	// Пул соединений: держим мало и закрываем простаивающие.
-	// На serverless-Postgres (Neon) это позволяет базе засыпать в простое —
-	// иначе бесплатные CU-часы сгорают на пустых соединениях.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := sqlDB.PingContext(ctx); err != nil {
+		return nil, err
+	}
+	log.Info("подключение к БД установлено")
+	return db, nil
+}
+
+func closeDB(db *gorm.DB, log *slog.Logger) {
 	if sqlDB, err := db.DB(); err == nil {
-		sqlDB.SetMaxOpenConns(8)
-		sqlDB.SetMaxIdleConns(2)
-		sqlDB.SetConnMaxIdleTime(time.Minute)
-		sqlDB.SetConnMaxLifetime(30 * time.Minute)
-	}
-
-	// Миграции: GORM AutoMigrate покрывает всю схему (SQL-эквивалент — в /migrations).
-	if err := db.AutoMigrate(
-		&model.Product{}, &model.ProductVariant{}, &model.ProductImage{},
-		&model.PromoCode{}, &model.User{}, &model.Order{}, &model.OrderItem{},
-		&model.FreshToday{}, &model.OrderStatusLog{},
-	); err != nil {
-		log.Fatalf("миграции: %v", err)
-	}
-
-	// Куда складывать фото товаров:
-	//   UPLOAD_STORE=db   — в Postgres (хостинг без постоянного диска),
-	//   иначе             — в папку UPLOAD_DIR (Railway Volume и локальная разработка).
-	uploadDir := envOr("UPLOAD_DIR", "./uploads")
-	var store storage.Storage
-	var dbUploads *storage.Postgres
-	if envOr("UPLOAD_STORE", "local") == "db" {
-		dbUploads, err = storage.NewPostgres(db, "/uploads")
-		if err != nil {
-			log.Fatalf("storage: %v", err)
-		}
-		store = dbUploads
-		log.Println("фото товаров хранятся в БД (UPLOAD_STORE=db)")
-	} else {
-		store, err = storage.NewLocal(uploadDir, "/uploads")
-		if err != nil {
-			log.Fatalf("storage: %v", err)
+		if err := sqlDB.Close(); err != nil {
+			log.Error("не удалось закрыть соединение с БД", "err", err)
 		}
 	}
+}
 
-	repo := repository.New(db)
-	svc := service.New(repo)
-
-	if *seed {
-		if err := runSeed(repo, uploadDir); err != nil {
-			log.Fatalf("сидинг: %v", err)
-		}
-		log.Println("тестовые данные загружены")
-		return
+// newStorage выбирает хранилище фото товаров.
+func newStorage(cfg *config.Config, db *gorm.DB, log *slog.Logger) (storage.Storage, *storage.Postgres, error) {
+	if cfg.UploadStore == "db" {
+		pg := storage.NewPostgres(db, "/uploads")
+		log.Info("фото товаров хранятся в БД")
+		return pg, pg, nil
 	}
-
-	api := &handler.API{
-		Repo:      repo,
-		Service:   svc,
-		BotToken:  os.Getenv("BOT_TOKEN"),
-		UploadDir: uploadDir,
-		Uploads:   dbUploads, // nil при локальном хранении — фото отдаёт FileServer
-		WebDist:   envOr("WEB_DIST", "./web/dist"),
+	local, err := storage.NewLocal(cfg.UploadDir, "/uploads")
+	if err != nil {
+		return nil, nil, err
 	}
+	log.Warn("фото товаров хранятся на диске — без подключённого Volume они пропадут при редеплое",
+		"dir", cfg.UploadDir)
+	return local, nil, nil
+}
 
-	// Бот опционален: без BOT_TOKEN сервис работает как чистый API (удобно для разработки).
-	if botToken := os.Getenv("BOT_TOKEN"); botToken != "" {
-		adminIDs := parseAdminIDs()
-		if len(adminIDs) == 0 {
-			log.Println("внимание: ADMIN_IDS/ADMIN_CHAT_ID не заданы — админ-команды будут недоступны")
-		}
-		appURL := os.Getenv("TELEGRAM_APP_URL")
-		bot, err := handler.NewBot(botToken, adminIDs, appURL, repo, svc, store)
-		if err != nil {
-			log.Fatalf("бот: %v", err)
-		}
+// startBot включает выбранный режим приёма апдейтов.
+func startBot(wg *sync.WaitGroup, cfg *config.Config, api *handler.API, bot *handler.Bot, log *slog.Logger) error {
+	log = log.With("bot_username", bot.Username())
 
-		// BOT_MODE=webhook — для хостингов, засыпающих без трафика: входящий
-		// запрос от Telegram сам будит сервис. По умолчанию — long polling.
-		if envOr("BOT_MODE", "polling") == "webhook" {
-			secret := os.Getenv("WEBHOOK_SECRET")
-			if secret == "" {
-				log.Fatal("BOT_MODE=webhook требует WEBHOOK_SECRET")
+	if cfg.BotMode == "webhook" {
+		secret := cfg.WebhookSecret
+		if secret == "" {
+			var err error
+			if secret, err = handler.NewWebhookSecret(); err != nil {
+				return err
 			}
-			api.WebhookPath = bot.WebhookPath(secret)
-			api.WebhookHandler = bot.WebhookHandler(secret)
-			if err := bot.SetupWebhook(envOr("PUBLIC_URL", appURL), secret); err != nil {
-				log.Fatalf("webhook: %v", err)
-			}
-		} else {
-			if err := bot.RemoveWebhook(); err != nil {
-				log.Printf("снятие webhook: %v", err)
-			}
-			go bot.Run()
+			log.Info("TELEGRAM_WEBHOOK_SECRET не задан — сгенерирован временный на время работы процесса")
 		}
-	} else {
-		log.Println("BOT_TOKEN не задан — запуск без бота")
-	}
-
-	port := envOr("PORT", "8080")
-	log.Printf("HTTP-сервер на :%s", port)
-	if err := http.ListenAndServe(":"+port, api.Routes()); err != nil {
-		log.Fatal(err)
-	}
-}
-
-func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}
-
-// parseAdminIDs — whitelist админов: ADMIN_IDS="123,456" (приоритет)
-// или одиночный ADMIN_CHAT_ID (обратная совместимость).
-func parseAdminIDs() []int64 {
-	var ids []int64
-	for _, part := range strings.Split(os.Getenv("ADMIN_IDS"), ",") {
-		if id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64); err == nil && id != 0 {
-			ids = append(ids, id)
+		api.WebhookPath = bot.WebhookPath(secret)
+		api.WebhookHandler = bot.WebhookHandler(secret)
+		if err := bot.SetupWebhook(cfg.PublicURL, secret); err != nil {
+			return err
 		}
-	}
-	if len(ids) == 0 {
-		if id, _ := strconv.ParseInt(os.Getenv("ADMIN_CHAT_ID"), 10, 64); id != 0 {
-			ids = append(ids, id)
-		}
-	}
-	return ids
-}
-
-// --- Сидинг тестовых данных ---
-
-type seedProduct struct {
-	name, desc, category string
-	slug                 string // префикс фото в web/public/seed/
-	variants             []model.ProductVariant
-}
-
-// runSeed наполняет пустую БД демо-товарами и промокодами.
-// Фото лежат в web/public/seed/ и попадают в сборку фронтенда.
-func runSeed(repo *repository.Repository, _ string) error {
-	var count int64
-	repo.DB.Model(&model.Product{}).Count(&count)
-	if count > 0 {
-		log.Println("товары уже есть — сидинг пропущен")
 		return nil
 	}
 
-	products := []seedProduct{
-		{"Розы Эквадор", "Крупные эквадорские розы глубокого красного оттенка. Стойкость до 14 дней.", model.CategoryPremium, "roses-red",
-			[]model.ProductVariant{{Quantity: 9, Price: 2990}, {Quantity: 15, Price: 4490}, {Quantity: 25, Price: 6990}}},
-		{"Пионовидный микс", "Пионовидные розы пастельных оттенков — нежность в каждом лепестке.", model.CategoryLux, "peony-pastel",
-			[]model.ProductVariant{{Quantity: 7, Price: 4990}, {Quantity: 11, Price: 7290}}},
-		{"Солнечное настроение", "Яркий жёлтый микс — маленькое солнце в вашем доме.", model.CategoryStandard, "sunny",
-			[]model.ProductVariant{{Quantity: 15, Price: 1990}, {Quantity: 25, Price: 2890}}},
-		{"Розовые каллы", "Элегантные каллы с розовым градиентом. Для ценителей строгих линий.", model.CategoryPremium, "calla",
-			[]model.ProductVariant{{Quantity: 9, Price: 3490}, {Quantity: 13, Price: 4990}}},
-		{"Тюльпаны Пинк", "Пионовидные розовые тюльпаны в лаконичной подаче.", model.CategoryStandard, "tulips-pink",
-			[]model.ProductVariant{{Quantity: 15, Price: 2290}, {Quantity: 25, Price: 3390}}},
-		{"Сердце из цветов", "Композиция-сердце из сезонных цветов. Признание без слов.", model.CategoryWow, "heart",
-			[]model.ProductVariant{{Quantity: 25, Price: 8990}, {Quantity: 51, Price: 14990}}},
-		{"Авторский гранд-букет", "Фирменный букет флориста: розы, эвкалипт, ягодники. Впечатление гарантировано.", model.CategoryWow, "wow-mix",
-			[]model.ProductVariant{{Quantity: 51, Price: 12990}, {Quantity: 101, Price: 18990}}},
+	if err := bot.RemoveWebhook(); err != nil {
+		log.Warn("не удалось снять webhook перед long polling", "err", err)
 	}
-
-	for _, sp := range products {
-		p := &model.Product{
-			Name:        sp.name,
-			Description: sp.desc,
-			Category:    sp.category,
-			Variants:    sp.variants,
-		}
-		for j := 1; j <= 4; j++ {
-			p.Images = append(p.Images, model.ProductImage{
-				URL: fmt.Sprintf("/seed/%s-%d.webp", sp.slug, j),
-			})
-		}
-		if err := repo.CreateProduct(p); err != nil {
-			return err
-		}
-	}
-
-	promos := []model.PromoCode{
-		{Code: "WELCOME10", DiscountPercent: 10},
-		{Code: "FLOWERS15", DiscountPercent: 15},
-	}
-	for i := range promos {
-		if err := repo.DB.Create(&promos[i]).Error; err != nil {
-			return err
-		}
-	}
+	wg.Add(1)
+	go func() { defer wg.Done(); bot.Run() }()
 	return nil
 }

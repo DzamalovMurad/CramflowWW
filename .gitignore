@@ -1,5 +1,5 @@
 # Go
-/cramflow
+/flowix
 /bin/
 
 # Frontend
@@ -8,7 +8,11 @@ web/dist/
 
 # Runtime
 /uploads/
+
+# Секреты: в репозиторий не попадает ничего, кроме .env.example
 .env
+.env.*
+!.env.example
 
 # Misc
 *.log

@@ -1,79 +1,98 @@
 package handler
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
-	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-// Режим webhook нужен на хостингах, которые засыпают без входящего трафика
-// (бесплатные тарифы PaaS): при long polling уснувший сервис перестаёт получать
-// сообщения, а с webhook входящий запрос от Telegram сам будит контейнер.
+// Режим webhook — основной: Telegram сам будит сервис входящим запросом,
+// нет постоянного исходящего соединения и нет «залипания» long polling
+// после редеплоя. Long polling остаётся запасным вариантом для локальной
+// разработки, где публичного адреса нет.
+
+// maxWebhookBody — апдейт Telegram не бывает больше; всё остальное — мусор.
+const maxWebhookBody = 1 << 20
+
+// NewWebhookSecret генерирует секрет, если он не задан в окружении.
+func NewWebhookSecret() (string, error) {
+	var b [24]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("генерация секрета webhook: %w", err)
+	}
+	return hex.EncodeToString(b[:]), nil
+}
 
 // WebhookPath — секретный путь, куда Telegram присылает апдейты.
 func (b *Bot) WebhookPath(secret string) string {
 	return "/telegram/" + secret
 }
 
-// SetupWebhook регистрирует webhook в Telegram. baseURL — публичный https-адрес
-// сервиса, secret — случайная строка в пути (плюс secret_token в заголовке).
+// SetupWebhook регистрирует webhook в Telegram.
+//
+// Защита двойная: секрет в пути (адрес знают только мы и Telegram) и
+// secret_token в заголовке X-Telegram-Bot-Api-Secret-Token, который мы
+// сверяем на каждом запросе. Поля secret_token в tgbotapi v5.5.1 нет,
+// поэтому setWebhook вызывается напрямую.
 func (b *Bot) SetupWebhook(baseURL, secret string) error {
-	baseURL = strings.TrimSuffix(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
 		return fmt.Errorf("webhook: не задан публичный адрес сервиса")
 	}
-	// Хостинг может отдавать адрес без схемы (например, Render: flowix.onrender.com).
-	if !strings.Contains(baseURL, "://") {
-		baseURL = "https://" + baseURL
-	}
-	wh, err := tgbotapi.NewWebhook(baseURL + b.WebhookPath(secret))
+	body, err := json.Marshal(map[string]any{
+		"url":             baseURL + b.WebhookPath(secret),
+		"secret_token":    secret,
+		"max_connections": 20,
+		"allowed_updates": []string{"message", "callback_query"},
+		// Апдейты, накопившиеся у старого бота или за время простоя,
+		// обрабатывать незачем: заказы уже в БД, а команды устарели.
+		"drop_pending_updates": true,
+	})
 	if err != nil {
 		return err
 	}
-	// tgbotapi v5.5.1 не умеет secret_token, поэтому секрет живёт в пути:
-	// адрес знают только Telegram и мы, запросы идут по HTTPS.
-	wh.MaxConnections = 20
-	if _, err := b.api.Request(wh); err != nil {
-		return err
+	if err := b.rawAPI("setWebhook", body); err != nil {
+		return fmt.Errorf("webhook: %w", err)
 	}
-	log.Printf("бот работает через webhook: %s%s", baseURL, b.WebhookPath(secret))
+	b.log.Info("бот работает через webhook", "base_url", baseURL)
 	return nil
 }
 
 // RemoveWebhook снимает webhook (нужно перед возвратом на long polling).
 func (b *Bot) RemoveWebhook() error {
-	_, err := b.api.Request(tgbotapi.DeleteWebhookConfig{DropPendingUpdates: false})
-	return err
+	return b.request(tgbotapi.DeleteWebhookConfig{DropPendingUpdates: false})
 }
 
-// WebhookHandler обрабатывает апдейты от Telegram и передаёт их в тот же
-// роутер, что и при long polling. Доступ к эндпоинту защищён секретом в пути;
-// права админа всё равно проверяются в handleMessage/handleCallback.
+// WebhookHandler принимает апдейты Telegram и отправляет их в тот же
+// маршрутизатор, что и long polling.
 func (b *Bot) WebhookHandler(secret string) http.HandlerFunc {
+	want := []byte(secret)
 	return func(w http.ResponseWriter, r *http.Request) {
-		update, err := b.api.HandleUpdate(r)
-		if err != nil {
-			log.Printf("webhook: %v", err)
+		got := []byte(r.Header.Get("X-Telegram-Bot-Api-Secret-Token"))
+		if subtle.ConstantTimeCompare(got, want) != 1 {
+			b.log.Warn("webhook: неверный secret_token", "ip", clientIP(r))
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
+		var update tgbotapi.Update
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxWebhookBody)).Decode(&update); err != nil {
+			b.log.Warn("webhook: не удалось разобрать апдейт", "err", err)
 			w.WriteHeader(http.StatusOK) // не просим Telegram повторять битый апдейт
 			return
 		}
-		// Отвечаем сразу, обработка — в фоне: Telegram не ждёт нашу логику.
+
+		// Отвечаем сразу: Telegram не должен ждать нашу логику, иначе он
+		// считает webhook медленным и начинает повторять апдейты.
 		w.WriteHeader(http.StatusOK)
+		b.wg.Add(1)
 		go func() {
-			defer func() {
-				if rec := recover(); rec != nil {
-					log.Printf("bot panic: %v", rec)
-				}
-			}()
-			switch {
-			case update.CallbackQuery != nil:
-				b.handleCallback(update.CallbackQuery)
-			case update.Message != nil:
-				b.handleMessage(update.Message)
-			}
+			defer b.wg.Done()
+			b.dispatch(update)
 		}()
 	}
 }

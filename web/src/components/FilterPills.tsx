@@ -16,11 +16,13 @@ export default function FilterPills({ selected, onSelect }: Props) {
         return (
           <button
             key={id || 'all'}
+            type="button"
+            aria-pressed={active}
             onClick={() => {
               haptic('light');
               onSelect(id);
             }}
-            className={`whitespace-nowrap rounded-button border px-3.5 py-2 font-mono text-[12px] font-bold uppercase tracking-wide transition-colors ${
+            className={`min-h-[44px] whitespace-nowrap rounded-button border px-3.5 font-mono text-[12px] font-bold uppercase tracking-wide transition-colors ${
               active
                 ? 'neon-glow border-transparent bg-accent text-on-accent'
                 : 'border-line bg-surface text-muted'

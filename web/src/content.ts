@@ -6,16 +6,29 @@
 export const content = {
   brand: 'flowix',
 
+  common: {
+    retry: 'попробовать ещё раз',
+    close: 'закрыть',
+    offline: 'нет связи — проверьте интернет и повторите',
+  },
+
+  error: {
+    title: 'что-то пошло не так',
+    hint: 'попробуйте обновить экран — корзина сохранится.',
+    reload: 'обновить',
+    toHome: 'на главную',
+  },
+
   home: {
     badge: 'доставка по москве · сегодня',
     title: 'цветы, которые хочется дарить',
     subtitle: 'свежие букеты, собранные вручную. предзаказ к нужному времени.',
-    cta: 'выбрать букет',
     freshToday: 'сегодня на базе',
     sectionTitle: 'букеты',
     shelfTitle: 'wow-букеты',
     shelfCaption: 'составные композиции, которые запоминают надолго',
     shelfAll: 'все',
+    activeOrder: 'ваш заказ',
   },
 
   sort: {
@@ -34,6 +47,9 @@ export const content = {
     searchPlaceholder: 'поиск букетов',
     empty: 'по этим условиям букетов не нашлось — попробуйте изменить фильтры',
     nothingFound: 'по запросу ничего не найдено',
+    loadFailed: 'не удалось загрузить каталог',
+    soldOut: 'нет в наличии',
+    lastLeft: 'осталось',
   },
 
   product: {
@@ -42,6 +58,9 @@ export const content = {
     addToCart: 'в корзину',
     flowersUnit: 'шт',
     availabilityNote: 'состав можно согласовать на этапе сборки',
+    soldOut: 'этот букет закончился',
+    soldOutHint: 'посмотрите другие — привезём сегодня',
+    toCatalog: 'в каталог',
   },
 
   cart: {
@@ -52,37 +71,60 @@ export const content = {
     inBouquet: 'в букете',
     total: 'итого',
     checkout: 'оформить заказ',
+    removed: 'убрали из корзины то, что закончилось',
   },
 
   checkout: {
     title: 'оформление',
+    contactsSection: 'контакты',
+    deliverySection: 'доставка',
+    extrasSection: 'дополнительно',
+    extrasHint: 'открытка, комментарий, промокод',
+
     name: 'ваше имя',
     namePlaceholder: 'иван',
     phone: 'телефон',
     phonePlaceholder: '+7 900 000-00-00',
     address: 'адрес доставки',
     addressPlaceholder: 'улица, дом, квартира',
+
+    forSomeoneElse: 'доставить другому человеку',
+    forSomeoneElseHint: 'курьер позвонит получателю, а не вам',
+    recipientName: 'имя получателя',
+    recipientNamePlaceholder: 'мама',
+    recipientPhone: 'телефон получателя',
+
     date: 'дата доставки',
+    dateToday: 'сегодня',
+    dateTomorrow: 'завтра',
+    dateOther: 'другой день',
     time: 'время доставки',
-    timeNote: 'доставляем ежедневно с 9:00 до 21:00',
+    timeExpress: 'в течение часа',
+    timeAt: 'ко времени',
     timeAtLabel: 'к какому времени',
+    timeNote: 'доставляем ежедневно с {open} до {close}',
+    expressUnavailable: 'сегодня доставить уже не успеем — выберите другой день',
+
     comment: 'комментарий',
     commentOptional: 'необязательно',
-    commentPlaceholder: 'например: без сирени',
+    commentPlaceholder: 'например: без сирени, домофон 15',
     cardText: 'текст открытки',
-    cardTextOptional: 'необязательно',
+    cardTextOptional: 'бесплатно',
     cardTextPlaceholder: 'пожелание или посвящение',
-    anonymous: 'отправить анонимно',
+    anonymous: 'не называть отправителя',
+
     promo: 'промокод',
     promoPlaceholder: 'WELCOME10',
     promoApply: 'применить',
     promoRemove: 'убрать',
-    promoDiscount: 'скидка',
+
     subtotal: 'сумма',
     discount: 'скидка',
     total: 'итого',
-    submit: 'подтвердить',
+    submit: 'подтвердить заказ',
     submitting: 'отправляем…',
+    submitRetry: 'отправить ещё раз',
+    fixErrors: 'проверьте выделенные поля',
   },
 
   profile: {
@@ -94,19 +136,28 @@ export const content = {
     promo: 'ваш промокод',
     discount: 'скидка',
     toCatalog: 'в каталог',
+    orders: 'мои заказы',
+    repeat: 'повторить',
+    repeatDone: 'добавили в корзину',
     about: 'о проекте',
-    aboutText: 'flowix — свежие авторские букеты с доставкой по москве. собираем вручную в день доставки.',
+    aboutText:
+      'flowix — свежие авторские букеты с доставкой по москве. собираем вручную в день доставки.',
+  },
+
+  order: {
+    number: 'заказ',
+    composition: 'состав заказа',
+    delivery: 'доставка',
+    promoApplied: 'промокод применён',
+    total: 'итого',
+    cancelReason: 'причина отмены',
+    notFound: 'заказ не найден',
   },
 
   confirmation: {
-    title: 'заказ успешно добавлен',
-    orderLabel: 'заказ',
-    orderAccepted: 'принят — спасибо за доверие',
-    composition: 'состав заказа',
-    promoApplied: 'промокод применён',
-    total: 'итого',
-    delivery: 'доставка',
-    managerCall: 'ожидайте звонка менеджера для подтверждения заказа',
+    title: 'заказ принят',
+    subtitle: 'спасибо за доверие',
+    managerCall: 'мы подтвердим заказ в этом чате — уведомления придут от бота',
     backToCatalog: 'вернуться в каталог',
   },
 } as const;
@@ -119,10 +170,28 @@ export const categoryLabels: Record<string, string> = {
   WOW: 'wow',
 };
 
-/** Быстрые фильтры каталога. */
+/** Быстрые фильтры каталога (id совпадают с repository.Filter* на сервере). */
 export const filterLabels: { id: string; label: string }[] = [
   { id: 'popular', label: 'популярное' },
   { id: 'new', label: 'новинки' },
   { id: 'preorder', label: 'предзаказ' },
   { id: 'budget', label: 'до 3 000 ₽' },
 ];
+
+/** Подписи статусов заказа. Значения совпадают с model.StatusLabels на сервере. */
+export const statusLabels: Record<string, string> = {
+  new: 'принят',
+  confirmed: 'подтверждён',
+  assembling: 'собираем букет',
+  delivering: 'курьер в пути',
+  delivered: 'доставлен',
+  cancelled: 'отменён',
+};
+
+/** Статусы, при которых заказ ещё «живой» и его стоит показывать на главной. */
+export const ACTIVE_STATUSES = ['new', 'confirmed', 'assembling', 'delivering'];
+
+/** Подстановка значений в шаблон: fill('с {open} до {close}', {open, close}). */
+export function fill(template: string, values: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? ''));
+}
