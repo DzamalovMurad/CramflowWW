@@ -73,6 +73,10 @@ func run(log *slog.Logger, seed, backupNow bool) error {
 	repo := repository.New(db, cfg.Now)
 	svc := service.New(repo, cfg, log)
 
+	// Сводка по данным сразу после миграций: видно, что каталог и история
+	// заказов на месте, и есть с чем сравнить состояние до/после деплоя.
+	logDBStats(context.Background(), repo, log)
+
 	if seed {
 		return runSeed(context.Background(), repo, log)
 	}
@@ -180,6 +184,31 @@ func run(log *slog.Logger, seed, backupNow bool) error {
 	}
 	log.Info("сервис остановлен")
 	return nil
+}
+
+// logDBStats пишет в лог состояние базы. Диагностика, а не бизнес-логика:
+// падать из-за неё нельзя.
+func logDBStats(ctx context.Context, repo *repository.Repository, log *slog.Logger) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	st, err := repo.Stats(ctx)
+	if err != nil {
+		log.Error("не удалось собрать сводку по базе", "err", err)
+		return
+	}
+	log.Info("состояние базы",
+		"товаров", st.Products,
+		"на_витрине", st.VisibleProducts,
+		"скрытых", st.HiddenProducts,
+		"удалённых", st.ArchivedProduct,
+		"вариантов", st.Variants,
+		"фото_записей", st.Images,
+		"заказов", st.Orders,
+		"активных_заказов", st.ActiveOrders,
+		"клиентов", st.Users,
+		"промокодов", st.PromoCodes,
+		"фото_в_БД", st.Uploads)
 }
 
 // openDB подключается к Postgres и настраивает пул.

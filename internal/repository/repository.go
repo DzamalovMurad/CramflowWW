@@ -599,6 +599,45 @@ func (r *Repository) GetFreshToday(ctx context.Context, date string) (*model.Fre
 	return &f, nil
 }
 
+// Stats — сводка состояния базы. Пишется в лог при старте: по ней сразу
+// видно, что данные на месте, и можно сравнить состояние до и после деплоя.
+type Stats struct {
+	Products        int64
+	VisibleProducts int64
+	HiddenProducts  int64
+	ArchivedProduct int64
+	Variants        int64
+	Images          int64
+	Orders          int64
+	ActiveOrders    int64
+	Users           int64
+	PromoCodes      int64
+	Uploads         int64
+}
+
+func (r *Repository) Stats(ctx context.Context) (*Stats, error) {
+	var s Stats
+	err := r.db(ctx).Raw(`
+		SELECT
+		  (SELECT COUNT(*) FROM products)                                              AS products,
+		  (SELECT COUNT(*) FROM products WHERE is_hidden = FALSE
+		                                   AND archived_at IS NULL)                    AS visible_products,
+		  (SELECT COUNT(*) FROM products WHERE is_hidden = TRUE)                       AS hidden_products,
+		  (SELECT COUNT(*) FROM products WHERE archived_at IS NOT NULL)                AS archived_product,
+		  (SELECT COUNT(*) FROM product_variants)                                      AS variants,
+		  (SELECT COUNT(*) FROM product_images)                                        AS images,
+		  (SELECT COUNT(*) FROM orders)                                                AS orders,
+		  (SELECT COUNT(*) FROM orders WHERE status NOT IN ('delivered','cancelled'))  AS active_orders,
+		  (SELECT COUNT(*) FROM users)                                                 AS users,
+		  (SELECT COUNT(*) FROM promo_codes)                                           AS promo_codes,
+		  (SELECT COUNT(*) FROM uploads)                                               AS uploads
+	`).Scan(&s).Error
+	if err != nil {
+		return nil, fmt.Errorf("сводка по базе: %w", err)
+	}
+	return &s, nil
+}
+
 // Ping — живость соединения с БД для health-эндпоинта.
 func (r *Repository) Ping(ctx context.Context) error {
 	sqlDB, err := r.DB.DB()
