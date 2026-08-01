@@ -383,7 +383,7 @@ func clipTelegram(s string) string {
 // BotCommands — единый источник правды для /setcommands в BotFather
 // и для меню команд, которое бот выставляет себе сам при старте.
 var BotCommands = []struct{ Command, Description string }{
-	{"start", "Открыть магазин"},
+	{"start", "Открыть каталог"},
 	{"orders", "Заказы по статусам"},
 	{"today", "Доставки на сегодня"},
 	{"preorders", "Предзаказы на будущие даты"},
@@ -425,7 +425,7 @@ func (b *Bot) syncMenuButton() {
 	body, err := json.Marshal(map[string]any{
 		"menu_button": map[string]any{
 			"type":    "web_app",
-			"text":    "🌸 Магазин",
+			"text":    "🌸 Каталог",
 			"web_app": map[string]string{"url": b.cfg.PublicURL},
 		},
 	})
@@ -550,26 +550,29 @@ func adminHelp() string {
 	return strings.TrimSpace(sb.String())
 }
 
-// handleCustomer — не-админ: deep-link промокоды и кнопка Mini App.
+// handleCustomer — не-админ: первый экран и промокод из deep-link.
+// Ответ всегда один и тот же по форме — приветствие и одна кнопка в каталог:
+// любая развилка на этом шаге стоит клиентов.
 func (b *Bot) handleCustomer(ctx context.Context, log *slog.Logger, msg *tgbotapi.Message) {
+	name := msg.From.FirstName
+
 	if msg.IsCommand() && msg.Command() == "start" {
 		if code := strings.TrimSpace(msg.CommandArguments()); code != "" {
 			promo, err := b.svc.ApplyDeepLinkPromo(ctx, msg.From.ID, code)
 			if err == nil {
-				b.sendShopButton(msg.Chat.ID, fmt.Sprintf(
-					"🎁 Промокод %s активирован — скидка %s!%s\nОн применится автоматически при оформлении заказа.",
-					promo.Code, promo.Describe(), promoMinimumHint(promo)))
+				b.sendWelcome(msg.Chat.ID, promoWelcomeText(
+					name, promo.Code, promo.Describe(), promoMinimumHint(promo)))
 				return
 			}
 			var ve *service.ValidationError
 			if !errors.As(err, &ve) {
 				log.Error("не удалось применить промокод из deep-link", "err", err)
 			}
-			b.sendShopButton(msg.Chat.ID, "Такой промокод не найден или уже не действует. Но цветы всё равно ждут вас 🌸")
-			return
+			// Промокод не сработал — про это ни слова: испорченная ссылка не повод
+			// начинать знакомство с извинений. Показываем обычное приветствие.
 		}
 	}
-	b.sendShopButton(msg.Chat.ID, "🌸 Добро пожаловать в Flowix!\nСвежие букеты с доставкой по Москве — выбирайте в магазине:")
+	b.sendWelcome(msg.Chat.ID, welcomeText(name))
 }
 
 // webAppKeyboard — inline-кнопка web_app (запуск Mini App). В tgbotapi v5.5.1
@@ -584,20 +587,6 @@ type webAppButton struct {
 	WebApp struct {
 		URL string `json:"url"`
 	} `json:"web_app"`
-}
-
-func (b *Bot) sendShopButton(chatID int64, text string) {
-	if b.cfg.PublicURL == "" {
-		b.send(chatID, text)
-		return
-	}
-	btn := webAppButton{Text: "🌸 Открыть магазин"}
-	btn.WebApp.URL = b.cfg.PublicURL
-	msg := tgbotapi.NewMessage(chatID, clipTelegram(text))
-	msg.ReplyMarkup = webAppKeyboard{InlineKeyboard: [][]webAppButton{{btn}}}
-	if _, err := b.sendRetry(msg); err != nil {
-		b.log.Error("не удалось отправить кнопку магазина", "chat_id", chatID, "err", err)
-	}
 }
 
 // ─── Маршрутизация callback-кнопок ─────────────────────────────────────────

@@ -25,6 +25,10 @@ type Config struct {
 	WebhookSecret string
 	BotMode       string // webhook | polling
 
+	// WelcomePhoto — снимок для первого экрана бота: file_id уже загруженного
+	// в Telegram фото или прямая https-ссылка. Пусто — приветствие уходит текстом.
+	WelcomePhoto string
+
 	UploadStore string // db | local
 	UploadDir   string
 	WebDist     string
@@ -49,6 +53,7 @@ func Load() (*Config, error) {
 		BotToken:      strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")),
 		WebhookSecret: strings.TrimSpace(os.Getenv("TELEGRAM_WEBHOOK_SECRET")),
 		BotMode:       strings.ToLower(envOr("BOT_MODE", "webhook")),
+		WelcomePhoto:  strings.TrimSpace(os.Getenv("WELCOME_PHOTO")),
 		UploadStore:   strings.ToLower(envOr("UPLOAD_STORE", "db")),
 		UploadDir:     envOr("UPLOAD_DIR", "./uploads"),
 		WebDist:       envOr("WEB_DIST", "./web/dist"),
