@@ -117,6 +117,7 @@ export const content = {
     promoPlaceholder: 'WELCOME10',
     promoApply: 'применить',
     promoRemove: 'убрать',
+    promoFrom: 'скидка действует на заказ от',
 
     subtotal: 'сумма',
     discount: 'скидка',

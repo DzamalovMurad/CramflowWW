@@ -77,7 +77,37 @@ export interface Order {
   cancel_reason?: string;
   created_at: string;
   items: OrderItem[];
-  promo_code?: { code: string; discount_percent: number };
+  promo_code?: Promo;
+}
+
+/**
+ * Промокод в том виде, в каком его отдаёт сервер.
+ *
+ * discount_percent остаётся для процентных кодов; у фиксированных он 0,
+ * а размер скидки лежит в discount_value. Итог всё равно считает сервер —
+ * здесь только предпросмотр, чтобы клиент видел ту же цифру заранее.
+ */
+export interface Promo {
+  code: string;
+  discount_percent: number;
+  discount_type?: 'percent' | 'fixed';
+  discount_value?: number;
+  min_order_amount?: number;
+}
+
+/** Скидка в рублях от суммы корзины. Правило то же, что в model.Apply. */
+export function promoDiscount(promo: Promo, subtotal: number): number {
+  if (subtotal <= 0) return 0;
+  if (promo.discount_type === 'fixed') {
+    return Math.min(Math.max(promo.discount_value ?? 0, 0), subtotal);
+  }
+  return Math.floor((subtotal * Math.max(promo.discount_percent, 0)) / 100);
+}
+
+/** Подпись скидки: «15%» или «500 ₽». */
+export function promoLabel(promo: Promo): string {
+  if (promo.discount_type === 'fixed') return formatPrice(promo.discount_value ?? 0);
+  return `${promo.discount_percent}%`;
 }
 
 /** Правила доставки, полученные от сервера (/api/config). */

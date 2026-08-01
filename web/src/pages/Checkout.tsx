@@ -13,7 +13,16 @@ import {
 import { useCart } from '../cart';
 import { haptic, tg } from '../telegram';
 import { content, fill } from '../content';
-import { formatDate, formatHour, formatPrice, shiftDate, type ShopConfig } from '../types';
+import {
+  formatDate,
+  formatHour,
+  formatPrice,
+  promoDiscount,
+  promoLabel,
+  shiftDate,
+  type Promo,
+  type ShopConfig,
+} from '../types';
 import { IconCheck } from '../components/icons';
 
 const c = content.checkout;
@@ -84,7 +93,7 @@ export default function Checkout() {
   const [isAnonymous, setIsAnonymous] = useState(false);
 
   const [promoInput, setPromoInput] = useState('');
-  const [promo, setPromo] = useState<{ code: string; discount_percent: number } | null>(null);
+  const [promo, setPromo] = useState<Promo | null>(null);
   const [promoError, setPromoError] = useState('');
   const [promoSource, setPromoSource] = useState<'form' | 'deeplink' | null>(null);
 
@@ -120,8 +129,14 @@ export default function Checkout() {
       .then((me) => {
         setName((v) => v || me.name || me.telegram_name || '');
         setPhone((v) => v || me.phone || '');
-        if (me.promo_code && me.discount_percent) {
-          setPromo({ code: me.promo_code, discount_percent: me.discount_percent });
+        if (me.promo_code) {
+          setPromo({
+            code: me.promo_code,
+            discount_percent: me.discount_percent ?? 0,
+            discount_type: me.discount_type,
+            discount_value: me.discount_value,
+            min_order_amount: me.min_order_amount,
+          });
           setPromoSource('deeplink');
         }
       })
@@ -158,14 +173,20 @@ export default function Checkout() {
 
   const maxTime = cfg ? `${String(cfg.close_hour).padStart(2, '0')}:00` : '21:00';
 
-  const discounted = promo ? Math.floor((total * (100 - promo.discount_percent)) / 100) : total;
+  // Порог мог перестать выполняться после правки корзины — тогда сервер
+  // оформит заказ без скидки, и предпросмотр обязан показывать то же самое.
+  const promoBelowMinimum = Boolean(promo?.min_order_amount && total < promo.min_order_amount);
+  // Предпросмотр скидки. Итоговую сумму всё равно считает сервер по ценам
+  // из базы — здесь клиент лишь видит ту же цифру заранее.
+  const discountAmount = promo && !promoBelowMinimum ? promoDiscount(promo, total) : 0;
+  const discounted = total - discountAmount;
 
   const applyPromo = async () => {
     const code = promoInput.trim();
     if (!code) return;
     setPromoError('');
     try {
-      const p = await checkPromo(code);
+      const p = await checkPromo(code, total);
       setPromo(p);
       setPromoSource('form');
       haptic('success');
@@ -446,7 +467,7 @@ export default function Checkout() {
                   <div className="flex min-h-[48px] items-center justify-between rounded-input border border-accent/50 bg-surface px-4 shadow-[0_0_10px_rgba(128,255,0,0.12)]">
                     <span className="flex items-center gap-2 font-mono text-[13px] font-bold uppercase">
                       <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-                      {promo.code} <span className="text-accent-2">−{promo.discount_percent}%</span>
+                      {promo.code} <span className="text-accent-2">−{promoLabel(promo)}</span>
                     </span>
                     {promoSource === 'form' && (
                       <button
@@ -492,12 +513,18 @@ export default function Checkout() {
               <span>{c.subtotal}</span>
               <span>{formatPrice(total)}</span>
             </div>
-            <div className="mt-1.5 flex justify-between font-mono text-[13px] uppercase text-accent-2">
-              <span>
-                {c.discount} {promo.discount_percent}%
-              </span>
-              <span>−{formatPrice(total - discounted)}</span>
-            </div>
+            {promoBelowMinimum ? (
+              <p className="mt-1.5 font-mono text-[13px] lowercase text-muted">
+                {c.promoFrom} {formatPrice(promo.min_order_amount ?? 0)}
+              </p>
+            ) : (
+              <div className="mt-1.5 flex justify-between font-mono text-[13px] uppercase text-accent-2">
+                <span>
+                  {c.discount} {promoLabel(promo)}
+                </span>
+                <span>−{formatPrice(discountAmount)}</span>
+              </div>
+            )}
           </div>
         )}
       </form>

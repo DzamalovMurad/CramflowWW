@@ -1,4 +1,4 @@
-import type { Order, Product, ProductCard, ShopConfig } from './types';
+import type { Order, Product, ProductCard, Promo, ShopConfig } from './types';
 import { initDataHeader } from './telegram';
 import { content } from './content';
 
@@ -137,8 +137,13 @@ export function fetchMyOrders(): Promise<Order[]> {
   return request('/api/my/orders');
 }
 
-export function checkPromo(code: string): Promise<{ code: string; discount_percent: number }> {
-  return request(`/api/promo/${encodeURIComponent(code)}`);
+/**
+ * checkPromo передаёт сумму корзины: сервер сам проверит минимальную сумму
+ * заказа и вернёт готовое правило скидки — процент или рубли.
+ */
+export function checkPromo(code: string, subtotal?: number): Promise<Promo> {
+  const query = subtotal && subtotal > 0 ? `?subtotal=${subtotal}` : '';
+  return request(`/api/promo/${encodeURIComponent(code)}${query}`);
 }
 
 export function fetchMe(): Promise<{
@@ -147,6 +152,9 @@ export function fetchMe(): Promise<{
   telegram_name?: string;
   promo_code?: string;
   discount_percent?: number;
+  discount_type?: 'percent' | 'fixed';
+  discount_value?: number;
+  min_order_amount?: number;
 }> {
   return request('/api/me');
 }

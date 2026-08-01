@@ -6,7 +6,7 @@ import { fetchMe, fetchMyOrders, fetchProduct } from '../api';
 import { useCart } from '../cart';
 import { haptic } from '../telegram';
 import { content } from '../content';
-import type { CartItem, Order } from '../types';
+import { promoLabel, type CartItem, type Order } from '../types';
 
 const c = content.profile;
 
@@ -15,6 +15,9 @@ interface Me {
   phone?: string;
   promo_code?: string;
   discount_percent?: number;
+  discount_type?: 'percent' | 'fixed';
+  discount_value?: number;
+  min_order_amount?: number;
 }
 
 /** Профиль: контакты, промокод, история заказов и повтор заказа в один тап. */
@@ -124,7 +127,13 @@ export default function Profile() {
                 <div className="mt-1 flex items-baseline justify-between">
                   <span className="text-[22px] font-extrabold text-accent-ink">{me.promo_code}</span>
                   <span className="text-sm opacity-80">
-                    {c.discount} {me.discount_percent}%
+                    {c.discount}{' '}
+                    {promoLabel({
+                      code: me.promo_code,
+                      discount_percent: me.discount_percent ?? 0,
+                      discount_type: me.discount_type,
+                      discount_value: me.discount_value,
+                    })}
                   </span>
                 </div>
               </div>
