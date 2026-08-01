@@ -22,7 +22,7 @@ export default function FilterPills({ selected, onSelect }: Props) {
               haptic('light');
               onSelect(id);
             }}
-            className={`min-h-[44px] whitespace-nowrap rounded-button border px-3.5 font-mono text-[12px] font-bold uppercase tracking-wide transition-colors ${
+            className={`min-h-[44px] whitespace-nowrap rounded-button border px-3.5 text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors ${
               active
                 ? 'neon-glow border-transparent bg-accent text-on-accent'
                 : 'border-line bg-surface text-muted'

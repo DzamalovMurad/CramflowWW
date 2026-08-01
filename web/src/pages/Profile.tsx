@@ -96,11 +96,11 @@ export default function Profile() {
       <div className="space-y-6 p-4">
         {isNewcomer && (
           <div className="animate-fade-up rounded-card bg-surface p-6 text-center shadow-card">
-            <p className="text-[15px] font-bold lowercase">{c.guest}</p>
+            <p className="text-[15px] font-semibold lowercase">{c.guest}</p>
             <p className="mt-1.5 text-sm lowercase text-muted">{c.guestHint}</p>
             <Link
               to="/catalog"
-              className="btn-accent mt-5 inline-flex min-h-[48px] items-center rounded-button px-6 text-[14px] font-bold lowercase text-on-accent"
+              className="btn-accent mt-5 inline-flex min-h-[48px] items-center rounded-button px-6 text-[14px] font-semibold lowercase text-on-accent"
             >
               {c.toCatalog}
             </Link>
@@ -121,11 +121,11 @@ export default function Profile() {
             {me?.phone && <Row label={c.phone} value={me.phone} />}
             {me?.promo_code && (
               <div className="rounded-card bg-ink p-5 text-page shadow-card">
-                <p className="text-[11px] font-bold uppercase tracking-wider opacity-70">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.09em] opacity-70">
                   {c.promo}
                 </p>
                 <div className="mt-1 flex items-baseline justify-between">
-                  <span className="text-[22px] font-extrabold text-accent-ink">{me.promo_code}</span>
+                  <span className="text-[22px] font-bold tracking-tight text-accent-ink">{me.promo_code}</span>
                   <span className="text-sm opacity-80">
                     {c.discount}{' '}
                     {promoLabel({
@@ -151,7 +151,7 @@ export default function Profile() {
                   type="button"
                   onClick={() => repeat(order)}
                   disabled={repeatingID !== null}
-                  className="min-h-[44px] w-full rounded-input border border-line bg-surface text-[14px] font-bold lowercase text-ink transition-transform active:scale-[0.98] disabled:opacity-50"
+                  className="min-h-[44px] w-full rounded-input border border-line bg-surface text-[14px] font-semibold lowercase text-ink transition-transform active:scale-[0.98] disabled:opacity-50"
                 >
                   {repeatingID === order.id ? c.repeatDone : c.repeat}
                 </button>
@@ -173,7 +173,7 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between rounded-card bg-surface px-5 py-4 shadow-card">
       <span className="label">{label}</span>
-      <span className="text-[15px] font-bold">{value}</span>
+      <span className="text-[15px] font-semibold">{value}</span>
     </div>
   );
 }
