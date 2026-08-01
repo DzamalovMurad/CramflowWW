@@ -1,8 +1,11 @@
 package migrate_test
 
 import (
+	"database/sql"
+	"io/fs"
 	"log/slog"
 	"testing"
+	"testing/fstest"
 
 	"github.com/dzamalovmurad/cramflowww/internal/migrate"
 	"github.com/dzamalovmurad/cramflowww/internal/testdb"
@@ -81,6 +84,61 @@ func TestIntegrationMigrationsApplyOnceToEmptyDatabase(t *testing.T) {
 			t.Errorf("индекс %s не создан", idx)
 		}
 	}
+}
+
+// Перевод промокодов на типы скидок обязан сохранить уже выданные акции:
+// процент из старой колонки становится значением скидки, а не обнуляется.
+func TestIntegrationPromoDiscountBackfill(t *testing.T) {
+	// Отдельная пустая база: этот тест проходит версии по порядку, а общая
+	// схема процесса к этому моменту уже мигрирована до конца.
+	db, err := sql.Open("pgx", testdb.NewDatabase(t, "migbackfill"))
+	if err != nil {
+		t.Fatalf("подключение: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	log := slog.New(slog.DiscardHandler)
+	ctx := t.Context()
+
+	// Состояние базы до этой миграции: применена только первая.
+	if err := migrate.Run(ctx, db, onlyFiles(t, "0001_init.sql"), log); err != nil {
+		t.Fatalf("первая миграция: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO promo_codes (code, discount_percent, per_user_limit, is_active)
+		VALUES ('LEGACY15', 15, 1, TRUE)`); err != nil {
+		t.Fatalf("промокод старого формата: %v", err)
+	}
+
+	if err := migrate.Run(ctx, db, migrations.FS, log); err != nil {
+		t.Fatalf("остальные миграции: %v", err)
+	}
+
+	var typ string
+	var value, minOrder int
+	if err := db.QueryRowContext(ctx, `
+		SELECT discount_type, discount_value, min_order_amount
+		  FROM promo_codes WHERE code = 'LEGACY15'`).Scan(&typ, &value, &minOrder); err != nil {
+		t.Fatalf("чтение промокода: %v", err)
+	}
+	if typ != "percent" || value != 15 || minOrder != 0 {
+		t.Fatalf("после миграции: тип %q, значение %d, порог %d — ожидали percent/15/0", typ, value, minOrder)
+	}
+}
+
+// onlyFiles — подмножество миграций, чтобы проверить переход между версиями,
+// а не только чистую установку.
+func onlyFiles(t *testing.T, names ...string) fs.FS {
+	t.Helper()
+	out := fstest.MapFS{}
+	for _, name := range names {
+		data, err := migrations.FS.ReadFile(name)
+		if err != nil {
+			t.Fatalf("чтение %s: %v", name, err)
+		}
+		out[name] = &fstest.MapFile{Data: data}
+	}
+	return out
 }
 
 // Обязательные внешние ключи: без них удаление заказа оставляет позиции-сироты.

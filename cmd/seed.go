@@ -67,8 +67,8 @@ func runSeed(ctx context.Context, repo *repository.Repository, log *slog.Logger)
 
 	// Приветственный код: одна скидка на клиента, без срока действия.
 	if err := repo.DB.WithContext(ctx).Exec(`
-		INSERT INTO promo_codes (code, discount_percent, per_user_limit, is_active)
-		VALUES ('WELCOME10', 10, 1, TRUE)
+		INSERT INTO promo_codes (code, discount_type, discount_value, per_user_limit, is_active)
+		VALUES ('WELCOME10', 'percent', 10, 1, TRUE)
 		ON CONFLICT (code) DO NOTHING`).Error; err != nil {
 		return fmt.Errorf("сидинг промокода: %w", err)
 	}

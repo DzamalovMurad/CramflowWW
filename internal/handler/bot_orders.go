@@ -343,8 +343,10 @@ func formatOrder(o *model.Order, today string, isNew bool) string {
 
 	fmt.Fprintf(&sb, "Адрес: %s\n", o.DeliveryAddress)
 	fmt.Fprintf(&sb, "Дата: %s, %s\n", o.DeliveryDate, o.DeliveryTime)
-	if o.PromoCode != nil {
-		fmt.Fprintf(&sb, "Промокод: %s (−%d%%, −%d₽)\n", o.PromoCode.Code, o.PromoCode.DiscountPercent, o.DiscountAmount)
+	// Код берём из снимка в заказе: саму акцию могли удалить, а заказ обязан
+	// объяснять свою скидку.
+	if code := orderPromoCode(o); code != "" {
+		fmt.Fprintf(&sb, "Промокод: %s (−%d₽)\n", code, o.DiscountAmount)
 	}
 	fmt.Fprintf(&sb, "Итого: %d₽\n", o.TotalPrice)
 	if o.CardText != "" {

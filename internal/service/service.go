@@ -164,34 +164,37 @@ func (s *Service) CreateOrder(ctx context.Context, in OrderInput) (*model.Order,
 			return err
 		}
 
-		promo, err := s.resolvePromo(ctx, tx, user, clean.PromoCode)
+		promo, err := s.resolvePromo(ctx, tx, user, clean.PromoCode, subtotal)
 		if err != nil {
 			return err
 		}
 
 		discount, total := 0, subtotal
 		var promoID *uint
+		promoText := ""
 		if promo != nil {
-			discount, total = model.ApplyDiscount(subtotal, promo.DiscountPercent)
+			discount, total = promo.Apply(subtotal)
 			promoID = &promo.ID
+			promoText = promo.Code
 		}
 
 		order := &model.Order{
-			UserID:          user.ID,
-			SubtotalPrice:   subtotal,
-			DiscountAmount:  discount,
-			TotalPrice:      total,
-			DeliveryAddress: clean.DeliveryAddress,
-			DeliveryDate:    clean.DeliveryDate,
-			DeliveryTime:    clean.DeliveryTime,
-			RecipientName:   clean.RecipientName,
-			RecipientPhone:  clean.RecipientPhone,
-			PromoCodeID:     promoID,
-			Comment:         clean.Comment,
-			CardText:        clean.CardText,
-			IsAnonymous:     clean.IsAnonymous,
-			Status:          model.StatusNew,
-			Items:           items,
+			UserID:           user.ID,
+			SubtotalPrice:    subtotal,
+			DiscountAmount:   discount,
+			TotalPrice:       total,
+			DeliveryAddress:  clean.DeliveryAddress,
+			DeliveryDate:     clean.DeliveryDate,
+			DeliveryTime:     clean.DeliveryTime,
+			RecipientName:    clean.RecipientName,
+			RecipientPhone:   clean.RecipientPhone,
+			PromoCodeID:      promoID,
+			AppliedPromoCode: promoText,
+			Comment:          clean.Comment,
+			CardText:         clean.CardText,
+			IsAnonymous:      clean.IsAnonymous,
+			Status:           model.StatusNew,
+			Items:            items,
 		}
 		if clean.IdempotencyKey != "" {
 			key := clean.IdempotencyKey
@@ -315,7 +318,9 @@ func (s *Service) buildItems(ctx context.Context, tx *repository.Repository, in 
 // resolvePromo выбирает и проверяет промокод: явно введённый приоритетнее
 // сохранённого по deep-link. Строка кода блокируется до конца транзакции,
 // поэтому два одновременных заказа не пробьют лимит применений.
-func (s *Service) resolvePromo(ctx context.Context, tx *repository.Repository, user *model.User, code string) (*model.PromoCode, error) {
+//
+// subtotal — сумма заказа до скидки: нужна для проверки минимальной суммы.
+func (s *Service) resolvePromo(ctx context.Context, tx *repository.Repository, user *model.User, code string, subtotal int) (*model.PromoCode, error) {
 	var promoID uint
 	explicit := code != ""
 	if explicit {
@@ -351,6 +356,9 @@ func (s *Service) resolvePromo(ctx context.Context, tx *repository.Repository, u
 
 	if !promo.Usable(s.now()) {
 		return reject("промокод больше не действует")
+	}
+	if !promo.MeetsMinimum(subtotal) {
+		return reject(fmt.Sprintf("промокод действует от %d ₽, в заказе %d ₽", promo.MinOrderAmount, subtotal))
 	}
 	if promo.PerUserLimit > 0 {
 		used, err := tx.CountUserRedemptions(ctx, promo.ID, user.ID)
@@ -607,7 +615,10 @@ func (s *Service) ApplyDeepLinkPromo(ctx context.Context, telegramID int64, code
 }
 
 // CheckPromo — проверка кода на экране оформления (показать скидку заранее).
-func (s *Service) CheckPromo(ctx context.Context, telegramID int64, code string) (*model.PromoCode, error) {
+// subtotal — сумма корзины до скидки; 0 = корзина неизвестна, тогда проверку
+// минимальной суммы делает уже CreateOrder. Итог всё равно считает сервер:
+// эта проверка нужна, чтобы отказ не всплыл на кнопке «подтвердить».
+func (s *Service) CheckPromo(ctx context.Context, telegramID int64, code string, subtotal int) (*model.PromoCode, error) {
 	code = strings.ToUpper(strings.TrimSpace(code))
 	if code == "" || utf8.RuneCountInString(code) > maxPromoCodeLen {
 		return nil, invalid("промокод не найден")
@@ -622,6 +633,9 @@ func (s *Service) CheckPromo(ctx context.Context, telegramID int64, code string)
 	if !promo.Usable(s.now()) {
 		return nil, invalid("промокод больше не действует")
 	}
+	if subtotal > 0 && !promo.MeetsMinimum(subtotal) {
+		return nil, invalid("промокод действует от %d ₽", promo.MinOrderAmount)
+	}
 	// Персональный лимит проверяем сразу: обидно узнать об этом на «подтвердить».
 	if promo.PerUserLimit > 0 && telegramID != 0 {
 		if user, err := s.Repo.GetUserByTelegramID(ctx, telegramID); err == nil {
@@ -632,4 +646,114 @@ func (s *Service) CheckPromo(ctx context.Context, telegramID int64, code string)
 		}
 	}
 	return promo, nil
+}
+
+// ─── Управление промокодами (админ) ────────────────────────────────────────
+
+// Код живёт в deep-link ?start=CODE, где Telegram разрешает только латиницу,
+// цифры, дефис и подчёркивание. Кириллический код молча ломал бы ссылку.
+var promoCodeRe = regexp.MustCompile(`^[A-Z0-9_-]+$`)
+
+const minPromoCodeLen = 3
+
+// PromoInput — параметры нового промокода.
+type PromoInput struct {
+	Code           string
+	DiscountType   string
+	DiscountValue  int
+	MinOrderAmount int
+	MaxUses        int
+	PerUserLimit   int
+	ExpiresAt      *time.Time
+}
+
+// ValidatePromoCode проверяет только сам код. Отдельно от CreatePromo, чтобы
+// визард в боте отказал на первом же шаге, а не после пяти введённых полей.
+func ValidatePromoCode(code string) error {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	switch {
+	case utf8.RuneCountInString(code) < minPromoCodeLen:
+		return invalid("код короче %d символов — его легко подобрать", minPromoCodeLen)
+	case utf8.RuneCountInString(code) > maxPromoCodeLen:
+		return invalid("код длиннее %d символов", maxPromoCodeLen)
+	case !promoCodeRe.MatchString(code):
+		return invalid("в коде только латиница, цифры, дефис и подчёркивание")
+	}
+	return nil
+}
+
+// ValidatePromoRule проверяет правило скидки вместе с минимальной суммой:
+// эта пара осмысленна только целиком.
+func ValidatePromoRule(discountType string, value, minOrder int) error {
+	switch discountType {
+	case model.DiscountTypePercent:
+		if value < 1 || value > model.MaxDiscountPercent {
+			return invalid("процент скидки — от 1 до %d", model.MaxDiscountPercent)
+		}
+	case model.DiscountTypeFixed:
+		if value < 1 || value > model.MaxDiscountFixed {
+			return invalid("сумма скидки — от 1 до %d ₽", model.MaxDiscountFixed)
+		}
+	default:
+		return invalid("скидка бывает процентной или фиксированной")
+	}
+	if minOrder < 0 || minOrder > model.MaxDiscountFixed {
+		return invalid("минимальная сумма заказа — от 0 до %d ₽", model.MaxDiscountFixed)
+	}
+	// Фиксированная скидка, равная порогу, обнуляет заказ целиком.
+	if discountType == model.DiscountTypeFixed && minOrder > 0 && value >= minOrder {
+		return invalid("скидка %d ₽ не меньше минимальной суммы заказа %d ₽ — заказ выйдет бесплатным",
+			value, minOrder)
+	}
+	return nil
+}
+
+// CreatePromo заводит промокод. Все границы проверяются здесь, чтобы админ
+// получил понятный текст, а не ошибку CHECK-constraint из Postgres.
+func (s *Service) CreatePromo(ctx context.Context, in PromoInput) (*model.PromoCode, error) {
+	code := strings.ToUpper(strings.TrimSpace(in.Code))
+	if err := ValidatePromoCode(code); err != nil {
+		return nil, err
+	}
+	if err := ValidatePromoRule(in.DiscountType, in.DiscountValue, in.MinOrderAmount); err != nil {
+		return nil, err
+	}
+
+	if in.MaxUses < 0 || in.PerUserLimit < 0 {
+		return nil, invalid("лимиты не могут быть отрицательными")
+	}
+	if in.ExpiresAt != nil && !in.ExpiresAt.After(s.now()) {
+		return nil, invalid("срок действия уже истёк")
+	}
+
+	promo := &model.PromoCode{
+		Code:           code,
+		DiscountType:   in.DiscountType,
+		DiscountValue:  in.DiscountValue,
+		MinOrderAmount: in.MinOrderAmount,
+		MaxUses:        in.MaxUses,
+		PerUserLimit:   in.PerUserLimit,
+		IsActive:       true,
+		ExpiresAt:      in.ExpiresAt,
+	}
+	if err := s.Repo.CreatePromo(ctx, promo); err != nil {
+		if isUniqueViolation(err) {
+			return nil, invalid("промокод %s уже существует", code)
+		}
+		return nil, fmt.Errorf("создание промокода: %w", err)
+	}
+	return promo, nil
+}
+
+// ListPromos — все промокоды для админского списка.
+func (s *Service) ListPromos(ctx context.Context) ([]model.PromoCode, error) {
+	return s.Repo.ListPromos(ctx)
+}
+
+// SetPromoActive включает или выключает промокод и возвращает его новое состояние.
+func (s *Service) SetPromoActive(ctx context.Context, id uint, active bool) (*model.PromoCode, error) {
+	if err := s.Repo.SetPromoActive(ctx, id, active); err != nil {
+		return nil, err
+	}
+	return s.Repo.GetPromoByID(ctx, id)
 }

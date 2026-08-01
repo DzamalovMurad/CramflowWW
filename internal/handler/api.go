@@ -294,9 +294,30 @@ type orderItemView struct {
 	Price        int  `json:"price"`
 }
 
+// promoView — представление промокода для Mini App.
+//
+// discount_percent остаётся первым полем и означает ровно то же, что и раньше:
+// процент у процентных кодов и 0 у фиксированных. Остальные поля добавлены
+// сверху, поэтому старый фронтенд продолжает работать без изменений.
 type promoView struct {
 	Code            string `json:"code"`
 	DiscountPercent int    `json:"discount_percent"`
+	DiscountType    string `json:"discount_type,omitempty"`
+	DiscountValue   int    `json:"discount_value,omitempty"`
+	MinOrderAmount  int    `json:"min_order_amount,omitempty"`
+	// Заполняются, только если известна сумма корзины (?subtotal=).
+	DiscountAmount int `json:"discount_amount,omitempty"`
+	Total          int `json:"total,omitempty"`
+}
+
+func newPromoView(p *model.PromoCode) promoView {
+	return promoView{
+		Code:            p.Code,
+		DiscountPercent: p.Percent(),
+		DiscountType:    p.DiscountType,
+		DiscountValue:   p.DiscountValue,
+		MinOrderAmount:  p.MinOrderAmount,
+	}
 }
 
 func (a *API) orderView(o *model.Order) orderView {
@@ -328,8 +349,15 @@ func (a *API) orderView(o *model.Order) orderView {
 			Price:        it.Price,
 		})
 	}
-	if o.PromoCode != nil {
-		v.PromoCode = &promoView{Code: o.PromoCode.Code, DiscountPercent: o.PromoCode.DiscountPercent}
+	switch {
+	case o.PromoCode != nil:
+		pv := newPromoView(o.PromoCode)
+		pv.DiscountAmount = o.DiscountAmount
+		v.PromoCode = &pv
+	case o.AppliedPromoCode != "":
+		// Промокод удалили после заказа: показываем снимок кода из самого заказа,
+		// иначе у клиента скидка «ниоткуда».
+		v.PromoCode = &promoView{Code: o.AppliedPromoCode, DiscountAmount: o.DiscountAmount}
 	}
 	return v
 }
@@ -341,7 +369,14 @@ func (a *API) getPromo(w http.ResponseWriter, r *http.Request) {
 	if u := a.optionalUser(r); u != nil {
 		tgID = u.ID
 	}
-	promo, err := a.Service.CheckPromo(r.Context(), tgID, clip(r.PathValue("code"), 64))
+	// subtotal — необязательная сумма корзины. Если она пришла, отвечаем сразу
+	// и суммой скидки: считает её всё равно сервер, клиент только показывает.
+	subtotal, _ := strconv.Atoi(r.URL.Query().Get("subtotal"))
+	if subtotal < 0 {
+		subtotal = 0
+	}
+
+	promo, err := a.Service.CheckPromo(r.Context(), tgID, clip(r.PathValue("code"), 64), subtotal)
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
@@ -351,10 +386,11 @@ func (a *API) getPromo(w http.ResponseWriter, r *http.Request) {
 		a.fail(r, w, "проверка промокода", err, "не удалось проверить промокод")
 		return
 	}
-	writeJSON(w, http.StatusOK, promoView{
-		Code:            promo.Code,
-		DiscountPercent: promo.DiscountPercent,
-	})
+	view := newPromoView(promo)
+	if subtotal > 0 {
+		view.DiscountAmount, view.Total = promo.Apply(subtotal)
+	}
+	writeJSON(w, http.StatusOK, view)
 }
 
 // getMe — сохранённые контакты и промокод из deep-link.
@@ -371,7 +407,10 @@ func (a *API) getMe(w http.ResponseWriter, r *http.Request) {
 		resp["phone"] = dbUser.Phone
 		if dbUser.PromoCode != nil && dbUser.PromoCode.Usable(a.Cfg.Now()) {
 			resp["promo_code"] = dbUser.PromoCode.Code
-			resp["discount_percent"] = dbUser.PromoCode.DiscountPercent
+			resp["discount_percent"] = dbUser.PromoCode.Percent()
+			resp["discount_type"] = dbUser.PromoCode.DiscountType
+			resp["discount_value"] = dbUser.PromoCode.DiscountValue
+			resp["min_order_amount"] = dbUser.PromoCode.MinOrderAmount
 		}
 	}
 	writeJSON(w, http.StatusOK, resp)

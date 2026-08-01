@@ -314,6 +314,76 @@ func TestIntegrationConfigEndpoint(t *testing.T) {
 	}
 }
 
+// Контракт /api/promo: старое поле discount_percent остаётся на месте (на нём
+// держится корзина Mini App), а сумму скидки считает сервер, а не клиент.
+func TestIntegrationPromoEndpointContract(t *testing.T) {
+	h := newAPIHarness(t)
+	if err := h.repo.CreatePromo(t.Context(), &model.PromoCode{
+		Code: "SPRING15", DiscountType: model.DiscountTypePercent, DiscountValue: 15, IsActive: true,
+	}); err != nil {
+		t.Fatalf("создание промокода: %v", err)
+	}
+	if err := h.repo.CreatePromo(t.Context(), &model.PromoCode{
+		Code: "MINUS500", DiscountType: model.DiscountTypeFixed, DiscountValue: 500,
+		MinOrderAmount: 3000, IsActive: true,
+	}); err != nil {
+		t.Fatalf("создание промокода: %v", err)
+	}
+
+	var percent struct {
+		Code            string `json:"code"`
+		DiscountPercent int    `json:"discount_percent"`
+		DiscountType    string `json:"discount_type"`
+		DiscountAmount  int    `json:"discount_amount"`
+		Total           int    `json:"total"`
+	}
+	rec := h.do(t, http.MethodGet, "/api/promo/spring15?subtotal=4990", "", 900001)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("процентный код: HTTP %d, тело %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &percent); err != nil {
+		t.Fatalf("разбор ответа: %v", err)
+	}
+	if percent.Code != "SPRING15" || percent.DiscountPercent != 15 {
+		t.Errorf("контракт витрины сломан: %+v", percent)
+	}
+	if percent.DiscountAmount != 748 || percent.Total != 4242 {
+		t.Errorf("скидка посчитана неверно: %d/%d, ожидали 748/4242",
+			percent.DiscountAmount, percent.Total)
+	}
+
+	// Фиксированная скидка: процента у неё нет, зато есть тип и сумма.
+	rec = h.do(t, http.MethodGet, "/api/promo/MINUS500?subtotal=4990", "", 900001)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("фиксированный код: HTTP %d, тело %s", rec.Code, rec.Body.String())
+	}
+	var fixed struct {
+		DiscountPercent int    `json:"discount_percent"`
+		DiscountType    string `json:"discount_type"`
+		DiscountValue   int    `json:"discount_value"`
+		MinOrderAmount  int    `json:"min_order_amount"`
+		DiscountAmount  int    `json:"discount_amount"`
+		Total           int    `json:"total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &fixed); err != nil {
+		t.Fatalf("разбор ответа: %v", err)
+	}
+	if fixed.DiscountPercent != 0 || fixed.DiscountType != model.DiscountTypeFixed ||
+		fixed.DiscountValue != 500 || fixed.MinOrderAmount != 3000 {
+		t.Errorf("описание фиксированной скидки: %+v", fixed)
+	}
+	if fixed.DiscountAmount != 500 || fixed.Total != 4490 {
+		t.Errorf("скидка посчитана неверно: %d/%d, ожидали 500/4490",
+			fixed.DiscountAmount, fixed.Total)
+	}
+
+	// Порог не выполнен — код не отдаётся вовсе.
+	rec = h.do(t, http.MethodGet, "/api/promo/MINUS500?subtotal=2000", "", 900001)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("код с невыполненным порогом: HTTP %d, ожидали 404", rec.Code)
+	}
+}
+
 // Публичные эндпоинты обязаны иметь лимит: перебор промокодов должен упираться в стену.
 func TestIntegrationPromoEndpointIsRateLimited(t *testing.T) {
 	h := newAPIHarness(t)

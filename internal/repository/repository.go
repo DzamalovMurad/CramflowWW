@@ -529,6 +529,30 @@ func (r *Repository) CountUserRedemptions(ctx context.Context, promoID, userID u
 	return int(n), err
 }
 
+// ListPromos — все промокоды, свежие сверху. Их десятки, не тысячи:
+// отдельная пагинация тут только мешала бы.
+func (r *Repository) ListPromos(ctx context.Context) ([]model.PromoCode, error) {
+	var out []model.PromoCode
+	err := r.db(ctx).Order("is_active DESC, id DESC").Limit(100).Find(&out).Error
+	return out, wrap(err)
+}
+
+func (r *Repository) CreatePromo(ctx context.Context, p *model.PromoCode) error {
+	return wrap(r.db(ctx).Create(p).Error)
+}
+
+// SetPromoActive включает и выключает промокод.
+func (r *Repository) SetPromoActive(ctx context.Context, id uint, active bool) error {
+	res := r.db(ctx).Model(&model.PromoCode{}).Where("id = ?", id).Update("is_active", active)
+	if res.Error != nil {
+		return wrap(res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // RedeemPromo фиксирует применение промокода. Вызывается внутри транзакции заказа.
 func (r *Repository) RedeemPromo(ctx context.Context, promoID, userID, orderID uint) error {
 	if err := r.db(ctx).Create(&model.PromoRedemption{

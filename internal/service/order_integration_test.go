@@ -68,9 +68,19 @@ func (h *harness) product(t *testing.T, name string, price, stock int) uint {
 
 func (h *harness) promo(t *testing.T, code string, percent, maxUses, perUser int) uint {
 	t.Helper()
-	p := model.PromoCode{
-		Code: code, DiscountPercent: percent, MaxUses: maxUses,
-		PerUserLimit: perUser, IsActive: true,
+	return h.promoRow(t, model.PromoCode{
+		Code: code, DiscountType: model.DiscountTypePercent, DiscountValue: percent,
+		MaxUses: maxUses, PerUserLimit: perUser, IsActive: true,
+	})
+}
+
+// promoRow заводит промокод с произвольными полями (фиксированная скидка,
+// минимальная сумма, срок) — в обход валидации сервиса, чтобы тест мог
+// создать в том числе заведомо просроченный код.
+func (h *harness) promoRow(t *testing.T, p model.PromoCode) uint {
+	t.Helper()
+	if p.DiscountType == "" {
+		p.DiscountType = model.DiscountTypePercent
 	}
 	if err := h.db.Create(&p).Error; err != nil {
 		t.Fatalf("создание промокода: %v", err)
@@ -304,8 +314,8 @@ func TestIntegrationPromoInactiveAndExpired(t *testing.T) {
 	v := h.product(t, "Астры", 900, -1)
 
 	past := time.Now().Add(-time.Hour)
-	h.db.Create(&model.PromoCode{Code: "OFF", DiscountPercent: 10, IsActive: false})
-	h.db.Create(&model.PromoCode{Code: "OLD", DiscountPercent: 10, IsActive: true, ExpiresAt: &past})
+	h.promoRow(t, model.PromoCode{Code: "OFF", DiscountValue: 10, IsActive: false})
+	h.promoRow(t, model.PromoCode{Code: "OLD", DiscountValue: 10, IsActive: true, ExpiresAt: &past})
 
 	for _, code := range []string{"OFF", "OLD", "NOSUCH"} {
 		in := order(v, 1, 3100)
@@ -313,6 +323,243 @@ func TestIntegrationPromoInactiveAndExpired(t *testing.T) {
 		if _, err := h.svc.CreateOrder(t.Context(), in); err == nil {
 			t.Errorf("промокод %s не должен применяться", code)
 		}
+	}
+}
+
+// Фиксированная скидка вычитается рублями, а не процентами.
+func TestIntegrationOrderWithFixedPromo(t *testing.T) {
+	h := newHarness(t)
+	v := h.product(t, "Тюльпаны", 4990, -1)
+	h.promoRow(t, model.PromoCode{
+		Code: "MINUS500", DiscountType: model.DiscountTypeFixed, DiscountValue: 500, IsActive: true,
+	})
+
+	in := order(v, 1, 3200)
+	in.PromoCode = "minus500"
+	o, err := h.svc.CreateOrder(t.Context(), in)
+	if err != nil {
+		t.Fatalf("создание заказа: %v", err)
+	}
+	if o.SubtotalPrice != 4990 || o.DiscountAmount != 500 || o.TotalPrice != 4490 {
+		t.Fatalf("суммы: %d/%d/%d, ожидали 4990/500/4490",
+			o.SubtotalPrice, o.DiscountAmount, o.TotalPrice)
+	}
+	if o.AppliedPromoCode != "MINUS500" {
+		t.Errorf("код не зафиксирован в заказе: %q", o.AppliedPromoCode)
+	}
+}
+
+// Скидка больше суммы заказа обнуляет итог, но не уводит его в минус:
+// иначе магазин доплачивал бы клиенту.
+func TestIntegrationFixedPromoNeverNegative(t *testing.T) {
+	h := newHarness(t)
+	v := h.product(t, "Одна роза", 300, -1)
+	h.promoRow(t, model.PromoCode{
+		Code: "BIGMINUS", DiscountType: model.DiscountTypeFixed, DiscountValue: 5000, IsActive: true,
+	})
+
+	in := order(v, 1, 3201)
+	in.PromoCode = "BIGMINUS"
+	o, err := h.svc.CreateOrder(t.Context(), in)
+	if err != nil {
+		t.Fatalf("создание заказа: %v", err)
+	}
+	if o.DiscountAmount != 300 || o.TotalPrice != 0 {
+		t.Fatalf("скидка %d, итог %d — ожидали 300/0", o.DiscountAmount, o.TotalPrice)
+	}
+}
+
+// Минимальная сумма заказа: код не применяется к маленькой корзине.
+func TestIntegrationPromoMinOrderAmount(t *testing.T) {
+	h := newHarness(t)
+	v := h.product(t, "Гвоздики", 1000, -1)
+	h.promoRow(t, model.PromoCode{
+		Code: "FROM3000", DiscountValue: 10, MinOrderAmount: 3000, IsActive: true,
+	})
+
+	small := order(v, 2, 3300) // 2000 ₽ — не дотягивает
+	small.PromoCode = "FROM3000"
+	if _, err := h.svc.CreateOrder(t.Context(), small); err == nil {
+		t.Fatal("код с порогом 3000 ₽ не должен применяться к заказу на 2000 ₽")
+	}
+
+	big := order(v, 3, 3301) // 3000 ₽ — ровно порог
+	big.PromoCode = "FROM3000"
+	o, err := h.svc.CreateOrder(t.Context(), big)
+	if err != nil {
+		t.Fatalf("заказ ровно на порог: %v", err)
+	}
+	if o.DiscountAmount != 300 {
+		t.Fatalf("скидка %d, ожидали 300", o.DiscountAmount)
+	}
+
+	// Предварительная проверка на витрине отвечает так же, как оформление.
+	if _, err := h.svc.CheckPromo(t.Context(), 3300, "FROM3000", 2000); err == nil {
+		t.Error("CheckPromo пропустил код при сумме ниже порога")
+	}
+	if _, err := h.svc.CheckPromo(t.Context(), 3300, "FROM3000", 3000); err != nil {
+		t.Errorf("CheckPromo отклонил код при достаточной сумме: %v", err)
+	}
+}
+
+// Порог считается по сумме до скидки — иначе код с минимальной суммой
+// можно было бы «раскрутить» вторым кодом.
+func TestIntegrationPromoMinAppliesToSubtotal(t *testing.T) {
+	h := newHarness(t)
+	v := h.product(t, "Эустома", 3000, -1)
+	h.promoRow(t, model.PromoCode{
+		Code: "HALF", DiscountType: model.DiscountTypeFixed, DiscountValue: 1500,
+		MinOrderAmount: 3000, IsActive: true,
+	})
+
+	in := order(v, 1, 3400)
+	in.PromoCode = "HALF"
+	o, err := h.svc.CreateOrder(t.Context(), in)
+	if err != nil {
+		t.Fatalf("создание заказа: %v", err)
+	}
+	if o.SubtotalPrice != 3000 || o.DiscountAmount != 1500 || o.TotalPrice != 1500 {
+		t.Fatalf("суммы: %d/%d/%d, ожидали 3000/1500/1500",
+			o.SubtotalPrice, o.DiscountAmount, o.TotalPrice)
+	}
+}
+
+// Гонка на одном клиенте: два одновременных заказа с личным лимитом 1
+// дают ровно одну скидку. Именно этот случай ловит блокировка строки промокода.
+func TestIntegrationPromoNotAppliedTwiceUnderRace(t *testing.T) {
+	h := newHarness(t)
+	v := h.product(t, "Ранункулюс", 2000, -1)
+	h.promoRow(t, model.PromoCode{Code: "SOLO", DiscountValue: 25, PerUserLimit: 1, IsActive: true})
+
+	const n = 8
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	var ok atomic.Int32
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			in := order(v, 1, 3500) // один и тот же клиент
+			in.PromoCode = "SOLO"
+			<-start
+			if _, err := h.svc.CreateOrder(context.Background(), in); err == nil {
+				ok.Add(1)
+			}
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	if got := ok.Load(); got != 1 {
+		t.Fatalf("успешных заказов со скидкой %d, ожидали ровно 1", got)
+	}
+	var uses int
+	h.db.Model(&model.PromoCode{}).Where("code = ?", "SOLO").Select("uses").Scan(&uses)
+	if uses != 1 {
+		t.Fatalf("счётчик применений %d, ожидали 1", uses)
+	}
+	var redemptions int64
+	h.db.Model(&model.PromoRedemption{}).Count(&redemptions)
+	if redemptions != 1 {
+		t.Fatalf("записей о списании %d, ожидали 1", redemptions)
+	}
+}
+
+// Заказ обязан объяснять свою скидку даже после удаления акции.
+func TestIntegrationOrderKeepsPromoCodeAfterDeletion(t *testing.T) {
+	h := newHarness(t)
+	v := h.product(t, "Гортензия", 5000, -1)
+	id := h.promoRow(t, model.PromoCode{Code: "TEMP20", DiscountValue: 20, IsActive: true})
+
+	in := order(v, 1, 3600)
+	in.PromoCode = "TEMP20"
+	created, err := h.svc.CreateOrder(t.Context(), in)
+	if err != nil {
+		t.Fatalf("создание заказа: %v", err)
+	}
+	if err := h.db.Delete(&model.PromoCode{}, id).Error; err != nil {
+		t.Fatalf("удаление промокода: %v", err)
+	}
+
+	o, err := h.repo.GetOrder(t.Context(), created.ID)
+	if err != nil {
+		t.Fatalf("чтение заказа: %v", err)
+	}
+	if o.PromoCodeID != nil {
+		t.Error("ссылка на удалённый промокод должна обнулиться")
+	}
+	if o.AppliedPromoCode != "TEMP20" || o.DiscountAmount != 1000 {
+		t.Fatalf("снимок скидки потерян: код %q, скидка %d", o.AppliedPromoCode, o.DiscountAmount)
+	}
+}
+
+// ─── Управление промокодами ────────────────────────────────────────────────
+
+func TestIntegrationCreatePromoValidation(t *testing.T) {
+	h := newHarness(t)
+	base := service.PromoInput{
+		Code: "VALID10", DiscountType: model.DiscountTypePercent, DiscountValue: 10, PerUserLimit: 1,
+	}
+	if _, err := h.svc.CreatePromo(t.Context(), base); err != nil {
+		t.Fatalf("корректный промокод не создался: %v", err)
+	}
+
+	past := time.Now().Add(-time.Hour)
+	bad := map[string]service.PromoInput{
+		"дубликат кода":          base,
+		"код в другом регистре":  {Code: "valid10", DiscountType: model.DiscountTypePercent, DiscountValue: 10},
+		"слишком короткий код":   {Code: "AB", DiscountType: model.DiscountTypePercent, DiscountValue: 10},
+		"кириллица в коде":       {Code: "ВЕСНА10", DiscountType: model.DiscountTypePercent, DiscountValue: 10},
+		"процент больше предела": {Code: "TOOBIG", DiscountType: model.DiscountTypePercent, DiscountValue: 95},
+		"нулевая скидка":         {Code: "ZERO", DiscountType: model.DiscountTypePercent, DiscountValue: 0},
+		"неизвестный тип":        {Code: "WEIRD", DiscountType: "bonus", DiscountValue: 10},
+		"истёкший срок": {Code: "EXPIRED", DiscountType: model.DiscountTypePercent,
+			DiscountValue: 10, ExpiresAt: &past},
+		"заказ выходит бесплатным": {Code: "FREE", DiscountType: model.DiscountTypeFixed,
+			DiscountValue: 3000, MinOrderAmount: 3000},
+		"отрицательный лимит": {Code: "NEGATIVE", DiscountType: model.DiscountTypePercent,
+			DiscountValue: 10, MaxUses: -1},
+	}
+	for name, in := range bad {
+		if _, err := h.svc.CreatePromo(t.Context(), in); err == nil {
+			t.Errorf("%s: промокод не должен создаваться", name)
+		} else if !errors.As(err, new(*service.ValidationError)) {
+			t.Errorf("%s: ожидали понятную ошибку, получили %v", name, err)
+		}
+	}
+}
+
+// Выключенный код перестаёт работать сразу, включённый — снова работает.
+func TestIntegrationTogglePromo(t *testing.T) {
+	h := newHarness(t)
+	v := h.product(t, "Фрезия", 2000, -1)
+	created, err := h.svc.CreatePromo(t.Context(), service.PromoInput{
+		Code: "TOGGLE", DiscountType: model.DiscountTypePercent, DiscountValue: 10,
+	})
+	if err != nil {
+		t.Fatalf("создание промокода: %v", err)
+	}
+
+	if _, err := h.svc.SetPromoActive(t.Context(), created.ID, false); err != nil {
+		t.Fatalf("выключение: %v", err)
+	}
+	off := order(v, 1, 3700)
+	off.PromoCode = "TOGGLE"
+	if _, err := h.svc.CreateOrder(t.Context(), off); err == nil {
+		t.Error("выключенный промокод не должен применяться")
+	}
+
+	if _, err := h.svc.SetPromoActive(t.Context(), created.ID, true); err != nil {
+		t.Fatalf("включение: %v", err)
+	}
+	on := order(v, 1, 3701)
+	on.PromoCode = "TOGGLE"
+	o, err := h.svc.CreateOrder(t.Context(), on)
+	if err != nil {
+		t.Fatalf("включённый промокод должен работать: %v", err)
+	}
+	if o.DiscountAmount != 200 {
+		t.Fatalf("скидка %d, ожидали 200", o.DiscountAmount)
 	}
 }
 

@@ -65,14 +65,24 @@ type Bot struct {
 }
 
 type wizard struct {
-	mode      string // add | edit_text | edit_variants | edit_photos | edit_discount | edit_stock | fresh | order_photo | cancel_reason
+	mode      string // add | edit_text | edit_variants | edit_photos | edit_discount | edit_stock | fresh | order_photo | cancel_reason | promo_add
 	step      string // для add: name → photos → desc → variants → category → confirm
 	productID uint
 	orderID   uint
 	msgID     int    // карточка, которую правим после действия
 	field     string // name | description
 	draft     draft
+	promo     promoDraft
 	touched   time.Time
+}
+
+// promoDraft — накопленные шаги визарда /promoadd.
+type promoDraft struct {
+	code          string
+	discountType  string
+	discountValue int
+	minOrder      int
+	expiresAt     *time.Time
 }
 
 type draft struct {
@@ -382,6 +392,8 @@ var BotCommands = []struct{ Command, Description string }{
 	{"edit", "Изменить товар"},
 	{"hide", "Скрыть или показать товар"},
 	{"delete", "Удалить товар"},
+	{"promo", "Промокоды: список и вкл/выкл"},
+	{"promoadd", "Создать промокод"},
 	{"fresh", "Что сегодня свежее на базе"},
 	{"clean", "Очистить историю чата"},
 	{"cancel", "Прервать текущее действие"},
@@ -502,6 +514,10 @@ func (b *Bot) handleAdminCommand(ctx context.Context, log *slog.Logger, msg *tgb
 		b.sendProductList(ctx, chatID, "Какой товар скрыть/показать?", "hide")
 	case "delete":
 		b.sendProductList(ctx, chatID, "Какой товар удалить?", "del")
+	case "promo":
+		b.sendPromoList(ctx, chatID)
+	case "promoadd":
+		b.startPromoWizard(chatID)
 	case "fresh":
 		if items := strings.TrimSpace(msg.CommandArguments()); items != "" {
 			b.saveFresh(ctx, chatID, items)
@@ -541,8 +557,8 @@ func (b *Bot) handleCustomer(ctx context.Context, log *slog.Logger, msg *tgbotap
 			promo, err := b.svc.ApplyDeepLinkPromo(ctx, msg.From.ID, code)
 			if err == nil {
 				b.sendShopButton(msg.Chat.ID, fmt.Sprintf(
-					"🎁 Промокод %s активирован — скидка %d%%!\nОн применится автоматически при оформлении заказа.",
-					promo.Code, promo.DiscountPercent))
+					"🎁 Промокод %s активирован — скидка %s!%s\nОн применится автоматически при оформлении заказа.",
+					promo.Code, promo.Describe(), promoMinimumHint(promo)))
 				return
 			}
 			var ve *service.ValidationError
@@ -621,6 +637,8 @@ func (b *Bot) handleCallback(ctx context.Context, log *slog.Logger, cb *tgbotapi
 		b.handleCatalogCallback(ctx, log, cb, action, parts, argAt)
 	case "pg", "o", "cl", "flt", "flt2", "ophoto":
 		b.handleOrderCallback(ctx, log, cb, action, parts, argAt)
+	case "pr":
+		b.handlePromoCallback(ctx, log, cb, parts, argAt)
 	case "x":
 		if err := b.request(tgbotapi.NewDeleteMessage(chatID, cb.Message.MessageID)); err != nil {
 			log.Debug("не удалось удалить сообщение", "err", err)

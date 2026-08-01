@@ -200,6 +200,72 @@ func TestPromoUsable(t *testing.T) {
 	}
 }
 
+// Скидка считается по правилу кода и никогда не уводит заказ в минус.
+func TestPromoApply(t *testing.T) {
+	cases := []struct {
+		name         string
+		p            PromoCode
+		subtotal     int
+		wantDiscount int
+		wantTotal    int
+	}{
+		{"процент", PromoCode{DiscountType: DiscountTypePercent, DiscountValue: 15}, 4990, 748, 4242},
+		{"процент округляется вниз", PromoCode{DiscountType: DiscountTypePercent, DiscountValue: 10}, 999, 99, 900},
+		{"фиксированная", PromoCode{DiscountType: DiscountTypeFixed, DiscountValue: 500}, 4990, 500, 4490},
+		{"фиксированная больше суммы", PromoCode{DiscountType: DiscountTypeFixed, DiscountValue: 5000}, 3000, 3000, 0},
+		{"фиксированная равна сумме", PromoCode{DiscountType: DiscountTypeFixed, DiscountValue: 3000}, 3000, 3000, 0},
+		{"пустая корзина", PromoCode{DiscountType: DiscountTypeFixed, DiscountValue: 500}, 0, 0, 0},
+		// Пустой тип = процент: так лежат коды, заведённые до появления типов.
+		{"тип не указан", PromoCode{DiscountValue: 20}, 1000, 200, 800},
+	}
+	for _, c := range cases {
+		discount, total := c.p.Apply(c.subtotal)
+		if discount != c.wantDiscount || total != c.wantTotal {
+			t.Errorf("%s: Apply(%d) = %d/%d, ожидали %d/%d",
+				c.name, c.subtotal, discount, total, c.wantDiscount, c.wantTotal)
+		}
+		if total < 0 || discount < 0 {
+			t.Errorf("%s: отрицательные деньги %d/%d", c.name, discount, total)
+		}
+		if c.subtotal > 0 && discount+total != c.subtotal {
+			t.Errorf("%s: скидка и итог не сходятся с суммой %d", c.name, c.subtotal)
+		}
+	}
+}
+
+func TestPromoMeetsMinimum(t *testing.T) {
+	cases := []struct {
+		name     string
+		p        PromoCode
+		subtotal int
+		want     bool
+	}{
+		{"без порога", PromoCode{}, 100, true},
+		{"ровно порог", PromoCode{MinOrderAmount: 3000}, 3000, true},
+		{"выше порога", PromoCode{MinOrderAmount: 3000}, 3001, true},
+		{"ниже порога", PromoCode{MinOrderAmount: 3000}, 2999, false},
+	}
+	for _, c := range cases {
+		if got := c.p.MeetsMinimum(c.subtotal); got != c.want {
+			t.Errorf("%s: MeetsMinimum(%d) = %v, want %v", c.name, c.subtotal, got, c.want)
+		}
+	}
+}
+
+// Percent показывает процент только у процентных кодов: витрина Mini App
+// умеет рисовать «−15%», но не «−15 ₽».
+func TestPromoPercentAndDescribe(t *testing.T) {
+	percent := PromoCode{DiscountType: DiscountTypePercent, DiscountValue: 15}
+	fixed := PromoCode{DiscountType: DiscountTypeFixed, DiscountValue: 500}
+
+	if percent.Percent() != 15 || fixed.Percent() != 0 {
+		t.Errorf("Percent: процентный %d, фиксированный %d", percent.Percent(), fixed.Percent())
+	}
+	if percent.Describe() != "15%" || fixed.Describe() != "500 ₽" {
+		t.Errorf("Describe: %q и %q", percent.Describe(), fixed.Describe())
+	}
+}
+
 // ─── Товары ────────────────────────────────────────────────────────────────
 
 func TestProductAvailable(t *testing.T) {

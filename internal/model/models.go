@@ -3,6 +3,7 @@ package model
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -174,17 +175,21 @@ type Order struct {
 	DeliveryDate    string `json:"delivery_date"` // YYYY-MM-DD в часовом поясе магазина
 	DeliveryTime    string `json:"delivery_time"`
 	// Получатель, если это не сам заказчик (подарок). Пусто = получатель = заказчик.
-	RecipientName  string    `json:"recipient_name"`
-	RecipientPhone string    `json:"recipient_phone"`
-	PromoCodeID    *uint     `json:"promo_code_id,omitempty"`
-	Comment        string    `json:"comment"`
-	CardText       string    `json:"card_text"`    // текст открытки
-	IsAnonymous    bool      `json:"is_anonymous"` // анонимная доставка
-	CancelReason   string    `json:"cancel_reason"`
-	Status         string    `json:"status"`
-	IdempotencyKey *string   `json:"-"` // ключ повторной отправки формы
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	RecipientName  string `json:"recipient_name"`
+	RecipientPhone string `json:"recipient_phone"`
+	PromoCodeID    *uint  `json:"promo_code_id,omitempty"`
+	// Код, применённый в этом заказе, зафиксированный на момент оформления:
+	// сам промокод могут выключить, переписать или удалить, а заказ должен
+	// объяснять свою скидку и через год.
+	AppliedPromoCode string    `json:"applied_promo_code,omitempty"`
+	Comment          string    `json:"comment"`
+	CardText         string    `json:"card_text"`    // текст открытки
+	IsAnonymous      bool      `json:"is_anonymous"` // анонимная доставка
+	CancelReason     string    `json:"cancel_reason"`
+	Status           string    `json:"status"`
+	IdempotencyKey   *string   `json:"-"` // ключ повторной отправки формы
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 
 	User      User        `json:"user"`
 	PromoCode *PromoCode  `json:"promo_code,omitempty"`
@@ -231,19 +236,38 @@ type FreshToday struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// Типы скидки промокода.
+const (
+	DiscountTypePercent = "percent" // процент от суммы заказа
+	DiscountTypeFixed   = "fixed"   // фиксированная сумма в рублях
+)
+
+// Границы правила скидки. Те же значения проверяет CHECK в миграции 0002:
+// база — последний рубеж, приложение — понятное сообщение об ошибке.
+const (
+	MaxDiscountPercent = 90
+	MaxDiscountFixed   = 1_000_000
+)
+
 type PromoCode struct {
-	ID              uint       `gorm:"primaryKey" json:"id"`
-	Code            string     `json:"code"`
-	DiscountPercent int        `json:"discount_percent"`
-	Uses            int        `json:"uses"`
-	MaxUses         int        `json:"max_uses"`       // 0 = без ограничения
-	PerUserLimit    int        `json:"per_user_limit"` // 0 = без ограничения
-	IsActive        bool       `json:"is_active"`
-	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
+	ID   uint   `gorm:"primaryKey" json:"id"`
+	Code string `json:"code"`
+	// Правило скидки: DiscountValue читается в зависимости от DiscountType —
+	// проценты для percent, рубли для fixed.
+	DiscountType  string `json:"discount_type"`
+	DiscountValue int    `json:"discount_value"`
+	// Минимальная сумма заказа до скидки; 0 = без ограничения.
+	MinOrderAmount int        `json:"min_order_amount"`
+	Uses           int        `json:"uses"`
+	MaxUses        int        `json:"max_uses"`       // 0 = без ограничения
+	PerUserLimit   int        `json:"per_user_limit"` // 0 = без ограничения
+	IsActive       bool       `json:"is_active"`
+	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 
-// Usable — код в принципе действует (без учёта персональных лимитов клиента).
+// Usable — код в принципе действует (без учёта персональных лимитов клиента
+// и суммы конкретного заказа).
 func (p *PromoCode) Usable(now time.Time) bool {
 	if !p.IsActive {
 		return false
@@ -255,6 +279,43 @@ func (p *PromoCode) Usable(now time.Time) bool {
 		return false
 	}
 	return true
+}
+
+// MeetsMinimum — сумма заказа дотягивает до порога промокода.
+func (p *PromoCode) MeetsMinimum(subtotal int) bool {
+	return p.MinOrderAmount <= 0 || subtotal >= p.MinOrderAmount
+}
+
+// Apply считает скидку и итог по правилу промокода. Единственное место, где
+// скидка превращается в рубли: и заказ, и предварительная проверка на витрине
+// зовут его, поэтому разойтись они не могут.
+func (p *PromoCode) Apply(subtotal int) (discount, total int) {
+	if subtotal <= 0 {
+		return 0, max(subtotal, 0)
+	}
+	if p.DiscountType == DiscountTypeFixed {
+		// Скидка не может увести заказ в минус: за доставку букета
+		// магазин не доплачивает.
+		discount = min(max(p.DiscountValue, 0), subtotal)
+		return discount, subtotal - discount
+	}
+	return ApplyDiscount(subtotal, p.DiscountValue)
+}
+
+// Percent — процент скидки для витрины; у фиксированных кодов 0.
+func (p *PromoCode) Percent() int {
+	if p.DiscountType == DiscountTypeFixed {
+		return 0
+	}
+	return p.DiscountValue
+}
+
+// Describe — правило скидки одной строкой, для чата админа и уведомлений.
+func (p *PromoCode) Describe() string {
+	if p.DiscountType == DiscountTypeFixed {
+		return strconv.Itoa(p.DiscountValue) + " ₽"
+	}
+	return strconv.Itoa(p.DiscountValue) + "%"
 }
 
 // PromoRedemption — факт применения промокода конкретным клиентом в заказе.

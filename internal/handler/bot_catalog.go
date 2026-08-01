@@ -122,6 +122,8 @@ func (b *Bot) wizardInput(ctx context.Context, log *slog.Logger, msg *tgbotapi.M
 		b.editStock(ctx, log, chatID, w, text)
 	case "edit_photos":
 		b.send(chatID, "Отправьте фото файлом (до 5 шт) или /done — завершить.")
+	case "promo_add":
+		b.promoWizardInput(ctx, log, chatID, w, text)
 	}
 }
 
