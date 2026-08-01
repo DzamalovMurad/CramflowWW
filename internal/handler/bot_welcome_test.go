@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -122,5 +124,43 @@ func TestWelcomeFile(t *testing.T) {
 	}
 	if welcomeFile("https://example.com/a.jpg").NeedsUpload() {
 		t.Error("ссылку скачивает сам Telegram, загружать её не нужно")
+	}
+}
+
+// Снимок первого экрана: переменная важнее файла, а несуществующий файл
+// не должен превращаться в ссылку, по которой Telegram получит 404.
+func TestResolveWelcomePhoto(t *testing.T) {
+	dist := t.TempDir()
+
+	// Ничего не задано и файла нет — фото не отправляем вовсе.
+	cfg := &config.Config{PublicURL: "https://shop.example", WebDist: dist}
+	if got := resolveWelcomePhoto(cfg); got != "" {
+		t.Errorf("без файла и переменной ожидали пусто, получили %q", got)
+	}
+
+	// Файл в статике — берём его по адресу сервиса.
+	if err := os.WriteFile(filepath.Join(dist, welcomeAsset), []byte("jpeg"), 0o600); err != nil {
+		t.Fatalf("подготовка файла: %v", err)
+	}
+	if got := resolveWelcomePhoto(cfg); got != "https://shop.example/"+welcomeAsset {
+		t.Errorf("ссылка на статику = %q", got)
+	}
+
+	// Лишний слэш в адресе не должен давать двойной //.
+	slashed := &config.Config{PublicURL: "https://shop.example/", WebDist: dist}
+	if got := resolveWelcomePhoto(slashed); got != "https://shop.example/"+welcomeAsset {
+		t.Errorf("адрес со слэшем на конце = %q", got)
+	}
+
+	// Переменная перебивает файл: ею задают file_id.
+	cfg.WelcomePhoto = "  AgACAgIAAxk  "
+	if got := resolveWelcomePhoto(cfg); got != "AgACAgIAAxk" {
+		t.Errorf("переменная не в приоритете: %q", got)
+	}
+
+	// Без публичного адреса ссылку составить не из чего.
+	noURL := &config.Config{WebDist: dist}
+	if got := resolveWelcomePhoto(noURL); got != "" {
+		t.Errorf("без PUBLIC_URL ожидали пусто, получили %q", got)
 	}
 }

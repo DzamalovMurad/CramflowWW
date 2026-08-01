@@ -62,6 +62,9 @@ type Bot struct {
 	// polling выставляется до запуска горутин и дальше не меняется —
 	// иначе Stop() читал бы поле, которое пишет Run() в другой горутине.
 	polling bool
+
+	// welcomePhoto — снимок первого экрана, разобранный один раз на старте.
+	welcomePhoto string
 }
 
 type wizard struct {
@@ -116,6 +119,12 @@ func NewBot(cfg *config.Config, log *slog.Logger, repo *repository.Repository, s
 		msgLog:  map[int64][]int{},
 		done:    make(chan struct{}),
 		polling: cfg.BotMode == "polling",
+
+		welcomePhoto: resolveWelcomePhoto(cfg),
+	}
+	if b.welcomePhoto == "" {
+		b.log.Warn("приветственное фото не задано — первый экран уходит текстом",
+			"подсказка", "положите web/public/"+welcomeAsset+" или задайте WELCOME_PHOTO")
 	}
 	svc.NotifyNewOrder = b.NotifyNewOrder
 

@@ -2,9 +2,13 @@ package handler
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+
+	"github.com/dzamalovmurad/cramflowww/internal/config"
 )
 
 // Первый экран Flowix: одно сообщение, одна кнопка, ни одной развилки.
@@ -19,7 +23,31 @@ const (
 	// captionLimit — предел подписи к фото в Telegram: 1024 символа против
 	// 4096 у обычного сообщения.
 	captionLimit = 1000
+
+	// welcomeAsset — снимок первого экрана в статике Mini App (web/public/).
+	// Лежит там же, где остальные картинки проекта, и раздаётся тем же
+	// сервисом, поэтому отдельный хостинг под приветствие не нужен.
+	welcomeAsset = "welcome.jpg"
 )
+
+// resolveWelcomePhoto выбирает снимок для первого экрана.
+//
+// Приоритет у переменной окружения: ей можно подставить file_id уже
+// загруженного в Telegram фото или ссылку на что угодно. Если её нет —
+// берём файл из статики, но только когда он действительно лежит в сборке:
+// иначе каждый /start уходил бы в Telegram со ссылкой в никуда.
+func resolveWelcomePhoto(cfg *config.Config) string {
+	if p := strings.TrimSpace(cfg.WelcomePhoto); p != "" {
+		return p
+	}
+	if cfg.PublicURL == "" {
+		return ""
+	}
+	if info, err := os.Stat(filepath.Join(cfg.WebDist, welcomeAsset)); err != nil || info.IsDir() {
+		return ""
+	}
+	return strings.TrimRight(cfg.PublicURL, "/") + "/" + welcomeAsset
+}
 
 // welcomeText — приветствие. firstName может быть пустым (у клиента скрыто имя).
 func welcomeText(firstName string) string {
@@ -54,7 +82,7 @@ func (b *Bot) sendWelcome(chatID int64, text string) {
 		return
 	}
 
-	if photo := strings.TrimSpace(b.cfg.WelcomePhoto); photo != "" {
+	if photo := b.welcomePhoto; photo != "" {
 		msg := tgbotapi.NewPhoto(chatID, welcomeFile(photo))
 		msg.Caption = clipRunes(text, captionLimit)
 		msg.ParseMode = tgbotapi.ModeHTML
