@@ -47,6 +47,8 @@ func main() {
 		sqlDB.SetConnMaxLifetime(30 * time.Minute)
 	}
 
+	backfillNullDefaults(db)
+
 	// Миграции: GORM AutoMigrate покрывает всю схему (SQL-эквивалент — в /migrations).
 	if err := db.AutoMigrate(
 		&model.Product{}, &model.ProductVariant{}, &model.ProductImage{},
@@ -159,6 +161,42 @@ func parseAdminIDs() []int64 {
 		}
 	}
 	return ids
+}
+
+// backfillNullDefaults заполняет NULL-ы в колонках, которые модель объявляет
+// NOT NULL DEFAULT. Такие колонки добавлялись к уже существующим таблицам:
+// ALTER ADD COLUMN оставил старым строкам NULL, и следующий AutoMigrate падает
+// на «ALTER COLUMN … SET NOT NULL … contains null values» — приложение не стартует.
+// Значения берём ровно те же, что в тегах gorm, поэтому запись идемпотентна и
+// не меняет смысл данных: NULL и дефолт трактуются кодом одинаково.
+// Список константный (не из пользовательского ввода) — подстановка в SQL безопасна.
+func backfillNullDefaults(db *gorm.DB) {
+	columns := []struct{ table, column, value string }{
+		{"products", "is_hidden", "false"},
+		{"products", "is_hit", "false"},
+		{"products", "stock", "0"},
+		{"product_variants", "old_price", "0"},
+		{"orders", "status", "'new'"},
+		{"promo_codes", "uses", "0"},
+	}
+	for _, c := range columns {
+		var nullable string
+		err := db.Raw(
+			`SELECT is_nullable FROM information_schema.columns
+			 WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`,
+			c.table, c.column,
+		).Scan(&nullable).Error
+		// Колонки ещё нет (чистая БД) или она уже NOT NULL — делать нечего.
+		if err != nil || nullable != "YES" {
+			continue
+		}
+		res := db.Exec(fmt.Sprintf("UPDATE %s SET %s = %s WHERE %s IS NULL", c.table, c.column, c.value, c.column))
+		if res.Error != nil {
+			log.Printf("бэкфилл %s.%s: %v", c.table, c.column, res.Error)
+		} else if res.RowsAffected > 0 {
+			log.Printf("бэкфилл %s.%s: заполнено строк — %d", c.table, c.column, res.RowsAffected)
+		}
+	}
 }
 
 // --- Сидинг тестовых данных ---
