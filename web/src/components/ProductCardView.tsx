@@ -5,7 +5,8 @@ import { formatPrice, discountPercent } from '../types';
 import { content } from '../content';
 import { haptic } from '../telegram';
 import { useCart } from '../cart';
-import { IconPlus, IconMinus } from './icons';
+import { IconPlus, IconMinus, IconLeaf } from './icons';
+import { hasSeasonBadge } from '../seasonal';
 
 interface Props {
   product: ProductCard;
@@ -21,6 +22,7 @@ interface Props {
 export default function ProductCardView({ product, index, onAdd }: Props) {
   const off = discountPercent(product.price, product.old_price);
   const lowStock = product.stock !== undefined && product.stock > 0 && product.stock <= 5;
+  const seasonal = hasSeasonBadge(product);
 
   const { items, setQty } = useCart();
   const inCart = items.filter((i) => i.productId === product.id);
@@ -121,6 +123,12 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
 
         {/* Бейджи слева сверху */}
         <div className="pointer-events-none absolute left-2.5 top-2.5 flex flex-col items-start gap-1.5">
+          {seasonal && (
+            <span className="badge badge-season">
+              <IconLeaf size={11} />
+              {content.seasonal.badge}
+            </span>
+          )}
           {product.is_hit && <span className="badge badge-hit">хит</span>}
           {off > 0 && <span className="badge badge-sale">−{off}%</span>}
           {lowStock && <span className="badge badge-stock">осталось {product.stock}</span>}

@@ -122,6 +122,24 @@ export function IconTrash({ size = 20 }: { size?: number }) {
   );
 }
 
+/**
+ * Лист — единственный декоративный акцент сезонной плашки «к 1 сентября».
+ * Заливкой, а не контуром: на 11–12px штриховой лист «замыливается».
+ */
+export function IconLeaf({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <path d="M20.5 3.5c0 7.5-6 13.5-13.5 13.5C7 9.5 13 3.5 20.5 3.5Z" fill="currentColor" />
+      <path
+        d="M7 17 2.5 21.5"
+        stroke="currentColor"
+        strokeWidth={2.4}
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function IconSort({ size = 18 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" {...base}>

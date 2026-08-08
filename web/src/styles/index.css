@@ -21,6 +21,12 @@
   /* Акцентный текст на инвертированной поверхности (bg-ink): в светлой теме
      она тёмная — нужен яркий лайм; в тёмной становится светлой — нужен тёмный. */
   --c-accent-on-ink: #9DFF33;
+  /* Сезонный акцент (кампания «к 1 сентября») — тёплая охра ранней осени.
+     Используется ТОЛЬКО сезонной плашкой, основную палитру не трогает. */
+  --c-season: #9A5518;
+  --c-season-soft: rgba(154, 85, 24, 0.09);
+  --c-season-line: rgba(154, 85, 24, 0.26);
+  --c-season-on: #FFF7EF;
 
   /* Типографика: Onest — текст и заголовки, JetBrains Mono — цены/бейджи/подписи */
   --font-body: 'Onest', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -54,6 +60,10 @@
   --c-accent-2: #B4FF5C; /* лаймовый текст на тёмном */
   --c-on-accent: #0C0D0A;
   --c-accent-on-ink: #3F7D00; /* bg-ink здесь светлый — нужен тёмный лайм */
+  --c-season: #E8A76A; /* на графите охра должна быть светлее */
+  --c-season-soft: rgba(232, 167, 106, 0.12);
+  --c-season-line: rgba(232, 167, 106, 0.28);
+  --c-season-on: #17130E;
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 14px 34px -16px rgba(0, 0, 0, 0.7);
   --shadow-float: 0 8px 24px -8px rgba(0, 0, 0, 0.6);
   --accent-shadow: 0 8px 24px -8px rgba(139, 255, 31, 0.35);
@@ -283,6 +293,24 @@ body {
 }
 .badge-stock {
   color: #9dff33;
+}
+/* Сезонная плашка на фото: та же геометрия, что у остальных бейджей,
+   отличается только тёплым осенним тоном (читаем на тёмном стекле в обеих темах). */
+.badge-season {
+  color: #f0b173;
+}
+
+/* Сезонная таблетка в ряду быстрых фильтров: геометрия штатной таблетки,
+   тон — тёплая охра вместо неона, чтобы акцент был заметен, но не спорил с CTA. */
+.pill-season {
+  border-color: var(--c-season-line);
+  background: var(--c-season-soft);
+  color: var(--c-season);
+}
+.pill-season-active {
+  border-color: transparent;
+  background: var(--c-season);
+  color: var(--c-season-on);
 }
 
 /* Вкладки категорий: активная — «таблетка» с инверсией */

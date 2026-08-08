@@ -9,6 +9,7 @@ import { haptic } from '../telegram';
 import { content } from '../content';
 import { formatPrice, type ProductCard } from '../types';
 import { IconSort } from '../components/icons';
+import { isSeasonActive, isSeasonPick } from '../seasonal';
 
 const c = content.home;
 
@@ -23,6 +24,9 @@ export default function Home() {
   const [filter, setFilter] = useState('');
   const [sort, setSort] = useState<Sort>('');
   const [sheetOpen, setSheetOpen] = useState(false);
+  // Сезонная подборка «к 1 сентября» — отбор в браузере, запрос к API не меняется.
+  const [season, setSeason] = useState(false);
+  const seasonOn = isSeasonActive();
 
   const [products, setProducts] = useState<ProductCard[] | null>(null);
   const [error, setError] = useState('');
@@ -81,14 +85,15 @@ export default function Home() {
 
   // Полка WOW показывается только на «чистой» витрине (без фильтров).
   const shelf = useMemo(() => {
-    if (category || filter || !products) return [];
+    if (season || category || filter || !products) return [];
     return products.filter((p) => p.category === 'WOW');
-  }, [products, category, filter]);
+  }, [products, category, filter, season]);
   const grid = useMemo(() => {
     if (!sorted) return null;
-    if (shelf.length === 0) return sorted;
-    return sorted.filter((p) => p.category !== 'WOW');
-  }, [sorted, shelf]);
+    const base = season ? sorted.filter(isSeasonPick) : sorted;
+    if (shelf.length === 0) return base;
+    return base.filter((p) => p.category !== 'WOW');
+  }, [sorted, shelf, season]);
 
   const minPrice = grid && grid.length > 0 ? Math.min(...grid.map((p) => p.price)) : 0;
   const banners = 1 + (freshToday ? 1 : 0);
@@ -138,7 +143,11 @@ export default function Home() {
         <CategoryChips selected={category} onSelect={setCategory} />
         <div className="flex items-center gap-1 pr-2">
           <div className="min-w-0 flex-1">
-            <FilterPills selected={filter} onSelect={setFilter} />
+            <FilterPills
+              selected={filter}
+              onSelect={setFilter}
+              seasonal={seasonOn ? { active: season, onToggle: setSeason } : undefined}
+            />
           </div>
           <button
             type="button"
@@ -187,7 +196,7 @@ export default function Home() {
       )}
 
       {grid !== null && grid.length > 0 && (
-        <div key={`${category}|${filter}|${sort}`} className="grid grid-cols-2 gap-x-3 gap-y-6 p-4">
+        <div key={`${category}|${filter}|${sort}|${season}`} className="grid grid-cols-2 gap-x-3 gap-y-6 p-4">
           {grid.map((p, i) => (
             <ProductCardView key={p.id} product={p} index={i} onAdd={addCheapest} />
           ))}

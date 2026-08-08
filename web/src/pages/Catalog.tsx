@@ -9,12 +9,16 @@ import { useCart } from '../cart';
 import { haptic } from '../telegram';
 import { content } from '../content';
 import { formatPrice, type ProductCard } from '../types';
+import { isSeasonActive, isSeasonPick } from '../seasonal';
 
 /** Каталог: поиск + категории + быстрые фильтры + editorial-сетка. */
 export default function Catalog() {
   const [params, setParams] = useSearchParams();
   const category = params.get('category') ?? '';
   const filter = params.get('filter') ?? '';
+  // Сезонная подборка «к 1 сентября»: живёт в URL, отбор считается в браузере.
+  const seasonOn = isSeasonActive();
+  const season = seasonOn && params.get('season') === '1';
 
   // Поиск: локальный ввод мгновенный, запрос — с debounce 300мс.
   const [query, setQuery] = useState('');
@@ -40,7 +44,7 @@ export default function Catalog() {
     };
   }, [category, filter, search]);
 
-  const updateParams = (key: 'category' | 'filter', value: string) => {
+  const updateParams = (key: 'category' | 'filter' | 'season', value: string) => {
     const next = new URLSearchParams(params);
     if (value) next.set(key, value);
     else next.delete(key);
@@ -63,21 +67,30 @@ export default function Catalog() {
     haptic('success');
   };
 
-  const minPrice = products && products.length > 0 ? Math.min(...products.map((p) => p.price)) : 0;
+  const visible = products && season ? products.filter(isSeasonPick) : products;
+  const minPrice = visible && visible.length > 0 ? Math.min(...visible.map((p) => p.price)) : 0;
 
   return (
     <div className="pb-24">
       <Header search={{ value: query, onChange: setQuery }} />
       <div className="sticky top-14 z-10 border-b border-line bg-page">
         <CategoryChips selected={category} onSelect={(c) => updateParams('category', c)} />
-        <FilterPills selected={filter} onSelect={(f) => updateParams('filter', f)} />
+        <FilterPills
+          selected={filter}
+          onSelect={(f) => updateParams('filter', f)}
+          seasonal={
+            seasonOn
+              ? { active: season, onToggle: (next) => updateParams('season', next ? '1' : '') }
+              : undefined
+          }
+        />
       </div>
 
-      {products !== null && products.length > 0 && (
+      {visible !== null && visible.length > 0 && (
         <div className="flex items-baseline justify-between px-4 pb-1 pt-4">
           <h2 className="display text-[22px]">{content.catalog.title}</h2>
           <p className="label !text-[11px]">
-            {products.length} {content.catalog.count} · {content.catalog.priceFrom} {formatPrice(minPrice)}
+            {visible.length} {content.catalog.count} · {content.catalog.priceFrom} {formatPrice(minPrice)}
           </p>
         </div>
       )}
@@ -96,15 +109,15 @@ export default function Catalog() {
         </div>
       )}
 
-      {products !== null && products.length === 0 && (
+      {visible !== null && visible.length === 0 && (
         <p className="px-10 py-16 text-center text-sm lowercase leading-relaxed text-muted">
           {search ? content.catalog.nothingFound : content.catalog.empty}
         </p>
       )}
 
-      {products !== null && products.length > 0 && (
-        <div key={`${category}|${filter}|${search}`} className="grid grid-cols-2 gap-x-3 gap-y-6 p-4">
-          {products.map((p, i) => (
+      {visible !== null && visible.length > 0 && (
+        <div key={`${category}|${filter}|${search}|${season}`} className="grid grid-cols-2 gap-x-3 gap-y-6 p-4">
+          {visible.map((p, i) => (
             <ProductCardView key={p.id} product={p} index={i} onAdd={addCheapest} />
           ))}
         </div>

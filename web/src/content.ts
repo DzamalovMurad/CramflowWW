@@ -18,6 +18,12 @@ export const content = {
     shelfAll: 'все',
   },
 
+  /** Сезонная кампания «к 1 сентября» (см. src/seasonal.ts). */
+  seasonal: {
+    pill: 'к 1 сентября',
+    badge: '1 сентября',
+  },
+
   sort: {
     title: 'сортировка',
     default: 'по умолчанию',
