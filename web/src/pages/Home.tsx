@@ -16,6 +16,7 @@ import { haptic } from '../telegram';
 import { ACTIVE_STATUSES, content, statusLabels } from '../content';
 import { formatDate, formatPrice, inStock, type Order, type ProductCard } from '../types';
 import { IconSort } from '../components/icons';
+import { isSeasonActive, isSeasonPick, seasonPicks } from '../seasonal';
 
 const c = content.home;
 
@@ -99,14 +100,22 @@ export default function Home() {
 
   // Полка WOW показывается только на «чистой» витрине (без фильтров).
   const shelf = useMemo(() => {
-    if (category || filter || !products) return [];
+    if (season || category || filter || !products) return [];
     return products.filter((p) => p.category === 'WOW');
-  }, [products, category, filter]);
+  }, [products, category, filter, season]);
   const grid = useMemo(() => {
     if (!sorted) return null;
-    if (shelf.length === 0) return sorted;
-    return sorted.filter((p) => p.category !== 'WOW');
-  }, [sorted, shelf]);
+    const base = season ? sorted.filter(isSeasonPick) : sorted;
+    if (shelf.length === 0) return base;
+    return base.filter((p) => p.category !== 'WOW');
+  }, [sorted, shelf, season]);
+
+  // Таблетку показываем, только если ей есть что открыть, — иначе тап ведёт
+  // в пустую витрину. Уже включённую не прячем, чтобы её можно было выключить.
+  const seasonReady = useMemo(
+    () => season || (!!products && seasonPicks(products).length > 0),
+    [products, season],
+  );
 
   const minPrice = grid && grid.length > 0 ? Math.min(...grid.map((p) => p.price)) : 0;
   const banners = 1 + (freshToday ? 1 : 0);

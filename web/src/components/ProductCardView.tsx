@@ -23,6 +23,7 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
   const off = discountPercent(product.price, product.old_price);
   const lowStock = isLowStock(product);
   const available = inStock(product);
+  const seasonal = hasSeasonBadge(product);
 
   const { items, setQty } = useCart();
   const inCart = items.filter((i) => i.productId === product.id);

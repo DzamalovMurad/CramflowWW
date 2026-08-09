@@ -8,6 +8,7 @@ import { fetchProduct, fetchProducts } from '../api';
 import { useCart } from '../cart';
 import { haptic } from '../telegram';
 import { content } from '../content';
+import { isSeasonActive, isSeasonPick, seasonPicks } from '../seasonal';
 import { formatPrice, inStock, type ProductCard } from '../types';
 
 /** Каталог: поиск + категории + быстрые фильтры + editorial-сетка. */
