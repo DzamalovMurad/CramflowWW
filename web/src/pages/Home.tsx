@@ -9,7 +9,7 @@ import { haptic } from '../telegram';
 import { content } from '../content';
 import { formatPrice, type ProductCard } from '../types';
 import { IconSort } from '../components/icons';
-import { isSeasonActive, isSeasonPick } from '../seasonal';
+import { isSeasonActive, isSeasonPick, seasonPicks } from '../seasonal';
 
 const c = content.home;
 
@@ -95,6 +95,13 @@ export default function Home() {
     return base.filter((p) => p.category !== 'WOW');
   }, [sorted, shelf, season]);
 
+  // Таблетку показываем, только если ей есть что открыть, — иначе тап ведёт
+  // в пустую витрину. Уже включённую не прячем, чтобы её можно было выключить.
+  const seasonReady = useMemo(
+    () => season || (!!products && seasonPicks(products).length > 0),
+    [products, season],
+  );
+
   const minPrice = grid && grid.length > 0 ? Math.min(...grid.map((p) => p.price)) : 0;
   const banners = 1 + (freshToday ? 1 : 0);
 
@@ -146,7 +153,7 @@ export default function Home() {
             <FilterPills
               selected={filter}
               onSelect={setFilter}
-              seasonal={seasonOn ? { active: season, onToggle: setSeason } : undefined}
+              seasonal={seasonOn && seasonReady ? { active: season, onToggle: setSeason } : undefined}
             />
           </div>
           <button

@@ -9,7 +9,7 @@ import { useCart } from '../cart';
 import { haptic } from '../telegram';
 import { content } from '../content';
 import { formatPrice, type ProductCard } from '../types';
-import { isSeasonActive, isSeasonPick } from '../seasonal';
+import { isSeasonActive, isSeasonPick, seasonPicks } from '../seasonal';
 
 /** Каталог: поиск + категории + быстрые фильтры + editorial-сетка. */
 export default function Catalog() {
@@ -68,6 +68,8 @@ export default function Catalog() {
   };
 
   const visible = products && season ? products.filter(isSeasonPick) : products;
+  // Таблетку показываем, только если ей есть что открыть (включённую не прячем).
+  const seasonReady = season || (!!products && seasonPicks(products).length > 0);
   const minPrice = visible && visible.length > 0 ? Math.min(...visible.map((p) => p.price)) : 0;
 
   return (
@@ -79,7 +81,7 @@ export default function Catalog() {
           selected={filter}
           onSelect={(f) => updateParams('filter', f)}
           seasonal={
-            seasonOn
+            seasonOn && seasonReady
               ? { active: season, onToggle: (next) => updateParams('season', next ? '1' : '') }
               : undefined
           }
