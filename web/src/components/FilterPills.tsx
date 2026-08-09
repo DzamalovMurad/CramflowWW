@@ -13,7 +13,7 @@ interface Props {
 export default function FilterPills({ selected, onSelect, seasonal }: Props) {
   const pills = [{ id: '', label: 'все цветы' }, ...filterLabels];
   const pillBase =
-    'whitespace-nowrap rounded-button border px-3.5 py-2 font-mono text-[12px] font-bold uppercase tracking-wide transition-colors';
+    'min-h-[44px] whitespace-nowrap rounded-button border px-3.5 text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors';
   return (
     <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 pb-3">
       {seasonal && (

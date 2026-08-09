@@ -18,7 +18,7 @@ export function MenuHeader() {
       <div className="relative flex h-10 items-center justify-center">
         <Link
           to="/"
-          className="font-display flex min-h-[44px] items-center px-2 text-[30px] font-medium tracking-[-0.01em]"
+          className="flex min-h-[44px] items-center px-2 text-[27px] font-extrabold tracking-[-0.03em]"
         >
           {content.brand}
           <span className="text-accent-2">.</span>
@@ -73,7 +73,7 @@ export default function Header({
         )}
         <Link
           to="/"
-          className="font-display flex min-h-[44px] items-center text-[23px] font-medium tracking-[-0.01em]"
+          className="flex min-h-[44px] items-center text-[21px] font-extrabold tracking-[-0.03em]"
         >
           {content.brand}
           <span className="text-accent-2">.</span>
