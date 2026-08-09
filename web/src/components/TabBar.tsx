@@ -34,14 +34,14 @@ export default function TabBar() {
               >
                 <Icon size={23} />
                 {cart && count > 0 && (
-                  <span className="absolute -right-2 -top-1.5 flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-extrabold text-on-accent">
+                  <span className="absolute -right-2 -top-1.5 flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-accent nums px-1 text-[10px] font-bold text-on-accent">
                     {count}
                   </span>
                 )}
               </span>
               <span
                 className={`text-[10px] lowercase transition-colors ${
-                  active ? 'font-bold text-ink' : 'text-muted'
+                  active ? 'font-semibold text-ink' : 'text-muted'
                 }`}
               >
                 {label}

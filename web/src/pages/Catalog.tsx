@@ -90,7 +90,7 @@ export default function Catalog() {
 
       {visible !== null && visible.length > 0 && (
         <div className="flex items-baseline justify-between px-4 pb-1 pt-4">
-          <h2 className="display text-[22px]">{content.catalog.title}</h2>
+          <h2 className="heading">{content.catalog.title}</h2>
           <p className="label !text-[11px]">
             {visible.length} {content.catalog.count} · {content.catalog.priceFrom} {formatPrice(minPrice)}
           </p>

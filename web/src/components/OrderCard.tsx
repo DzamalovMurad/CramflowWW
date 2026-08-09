@@ -13,7 +13,7 @@ export function StatusBadge({ order }: { order: Order }) {
   const label = statusLabels[order.status] ?? order.status_label ?? order.status;
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold lowercase ${statusTone(
+      className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold lowercase ${statusTone(
         order.status,
       )}`}
     >
@@ -30,7 +30,7 @@ export default function OrderCard({ order, compact }: { order: Order; compact?: 
   return (
     <div className="rounded-card border border-line bg-surface p-5">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[15px] font-bold lowercase">
+        <span className="text-[15px] font-semibold lowercase">
           {content.order.number} #{order.id}
         </span>
         <StatusBadge order={order} />
@@ -42,11 +42,11 @@ export default function OrderCard({ order, compact }: { order: Order; compact?: 
           <div className="space-y-2.5">
             {order.items.map((item) => (
               <div key={item.id} className="flex items-baseline justify-between gap-3 text-sm">
-                <span className="lowercase">
+                <span>
                   {item.product_name} · {item.flowers_count} {content.product.flowersUnit}
                   {item.quantity > 1 && <span className="text-muted"> ×{item.quantity}</span>}
                 </span>
-                <span className="whitespace-nowrap font-mono font-medium">
+                <span className="nums whitespace-nowrap">
                   {formatPrice(item.price * item.quantity)}
                 </span>
               </div>
@@ -64,9 +64,9 @@ export default function OrderCard({ order, compact }: { order: Order; compact?: 
         </>
       )}
 
-      <div className="mt-4 flex justify-between border-t border-line pt-3.5 font-bold lowercase">
+      <div className="mt-4 flex justify-between border-t border-line pt-3.5 text-[15px] font-semibold">
         <span>{content.order.total}</span>
-        <span className="font-mono">{formatPrice(order.total_price)}</span>
+        <span className="price">{formatPrice(order.total_price)}</span>
       </div>
 
       <p className="mt-3 text-xs lowercase leading-relaxed text-muted">

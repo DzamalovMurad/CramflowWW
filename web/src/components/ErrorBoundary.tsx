@@ -30,12 +30,12 @@ export default class ErrorBoundary extends Component<
     return (
       <div className="flex min-h-screen flex-col items-center justify-center px-8 text-center">
         <div className="text-5xl">🥀</div>
-        <h1 className="display mt-5 text-[24px]">{content.error.title}</h1>
+        <h1 className="title mt-5">{content.error.title}</h1>
         <p className="mt-2 text-sm lowercase leading-relaxed text-muted">{content.error.hint}</p>
         <button
           type="button"
           onClick={() => window.location.reload()}
-          className="btn-accent mt-7 min-h-[48px] w-full max-w-[260px] rounded-button px-7 text-[15px] font-bold lowercase text-on-accent"
+          className="btn-accent mt-7 min-h-[48px] w-full max-w-[260px] rounded-button px-7 text-[15px] font-semibold lowercase text-on-accent"
         >
           {content.error.reload}
         </button>

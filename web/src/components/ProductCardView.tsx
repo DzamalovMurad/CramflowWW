@@ -119,7 +119,7 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[30%] bg-gradient-to-t from-black/60 to-transparent" />
             {!available && (
               <div className="absolute inset-0 flex items-center justify-center bg-page/55">
-                <span className="rounded-full bg-ink px-3 py-1.5 text-[11px] font-bold lowercase text-page">
+                <span className="rounded-full bg-ink px-3 py-1.5 text-[11px] font-semibold text-page">
                   {content.catalog.soldOut}
                 </span>
               </div>
@@ -161,7 +161,7 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
                 >
                   <IconMinus size={16} />
                 </button>
-                <span className="flex-1 text-center font-mono text-[14px] font-bold tabular-nums">
+                <span className="nums flex-1 text-center text-[15px] font-semibold">
                   {qty}
                 </span>
                 <button
@@ -188,15 +188,15 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
         )}
       </div>
 
-      <Link to={`/product/${product.id}`} className="mt-2.5 block">
+      <Link to={`/product/${product.id}`} className="mt-3.5 block">
         {available && (
           <p className="label mb-1 !text-[10px] text-accent-2">{content.catalog.deliveryToday}</p>
         )}
-        <p className="line-clamp-1 text-[14px] font-bold leading-snug">{product.name}</p>
+        <p className="line-clamp-1 text-[15px] font-medium leading-snug">{product.name}</p>
         <div className="mt-1 flex items-baseline gap-2">
-          <span className="font-mono text-[16px] font-bold">{formatPrice(product.price)}</span>
+          <span className="price text-[17px]">{formatPrice(product.price)}</span>
           {off > 0 && (
-            <span className="font-mono text-[13px] font-medium text-muted line-through">
+            <span className="nums text-[13px] text-muted line-through">
               {formatPrice(product.old_price!)}
             </span>
           )}

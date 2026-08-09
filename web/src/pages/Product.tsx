@@ -41,10 +41,10 @@ export default function ProductPage() {
       <div>
         <Header showBack={!tg()} />
         <div className="flex flex-col items-center px-10 py-24 text-center">
-          <p className="text-[17px] font-bold lowercase">{error}</p>
+          <p className="text-[17px] font-semibold lowercase">{error}</p>
           <Link
             to="/catalog"
-            className="mt-6 flex min-h-[48px] items-center rounded-button bg-ink px-7 text-sm font-bold lowercase text-page"
+            className="mt-6 flex min-h-[48px] items-center rounded-button bg-ink px-7 text-sm font-semibold lowercase text-page"
           >
             {content.product.toCatalog}
           </Link>
@@ -109,15 +109,15 @@ export default function ProductPage() {
             </span>
           )}
         </div>
-        <h1 className="display mt-1.5 text-[26px]">{product.name}</h1>
+        <h1 className="title mt-2">{product.name}</h1>
 
         {!available && (
           <div className="mt-4 rounded-input border border-line bg-tile p-4">
-            <p className="text-[15px] font-bold lowercase">{content.product.soldOut}</p>
+            <p className="text-[15px] font-semibold">{content.product.soldOut}</p>
             <p className="mt-1 text-sm lowercase text-muted">{content.product.soldOutHint}</p>
             <Link
               to="/catalog"
-              className="mt-3 inline-flex min-h-[44px] items-center text-sm font-bold lowercase text-accent-2"
+              className="mt-3 inline-flex min-h-[44px] items-center text-sm font-semibold text-accent-2"
             >
               {content.product.toCatalog} →
             </Link>
@@ -168,13 +168,13 @@ export default function ProductPage() {
         <button
           onClick={addToCart}
           disabled={!available}
-          className="btn-accent flex min-h-[52px] w-full items-center justify-between rounded-button px-5 text-[15px] font-bold lowercase text-on-accent disabled:opacity-50"
+          className="btn-accent flex min-h-[52px] w-full items-center justify-between rounded-button px-5 text-[15px] font-semibold text-on-accent disabled:opacity-50"
         >
           <span>{available ? content.product.addToCart : content.catalog.soldOut}</span>
           {available && (
-            <span className="flex items-baseline gap-2 font-mono">
+            <span className="price flex items-baseline gap-2">
               {totalOld > 0 && (
-                <span className="font-mono text-[13px] font-medium opacity-60 line-through">
+                <span className="nums text-[13px] font-normal opacity-60 line-through">
                   {formatPrice(totalOld)}
                 </span>
               )}
