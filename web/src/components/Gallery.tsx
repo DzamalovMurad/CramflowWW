@@ -35,6 +35,7 @@ export default function Gallery({ images, alt }: { images: ProductImage[]; alt: 
               src={img.url}
               alt={`${alt} — фото ${i + 1}`}
               loading={i === 0 ? 'eager' : 'lazy'}
+              decoding="async"
               onClick={() => setFullscreen(true)}
               className="h-full w-full flex-shrink-0 snap-center object-cover"
             />
@@ -60,8 +61,10 @@ export default function Gallery({ images, alt }: { images: ProductImage[]; alt: 
           onClick={() => setFullscreen(false)}
         >
           <button
+            type="button"
             aria-label="закрыть"
-            className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/15 text-white"
+            onClick={() => setFullscreen(false)}
+            className="absolute right-4 z-10 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white"
             style={{ top: 'calc(env(safe-area-inset-top) + 16px)' }}
           >
             <IconClose size={18} />

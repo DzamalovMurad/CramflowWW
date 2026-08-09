@@ -1,15 +1,13 @@
-package storage
+package storage_test
 
 import (
 	"bytes"
 	"image/jpeg"
-	"os"
 	"strings"
 	"testing"
 
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	"github.com/dzamalovmurad/cramflowww/internal/storage"
+	"github.com/dzamalovmurad/cramflowww/internal/testdb"
 )
 
 // Минимальный валидный PNG 1×1 — чтобы проверить определение MIME-типа.
@@ -20,24 +18,13 @@ var onePixelPNG = []byte{
 	0, 0, 0, 0, 'I', 'E', 'N', 'D', 0xae, 0x42, 0x60, 0x82,
 }
 
-// Хранение фото в БД: Save → Get возвращает те же байты и корректный MIME.
-// Запуск: TEST_DATABASE_URL=postgres://... go test ./internal/storage/ -run Integration
+// Хранение фото в БД: Save → Get возвращает корректную картинку и MIME.
 func TestIntegrationPostgresStorageRoundTrip(t *testing.T) {
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL не задан — интеграционный тест пропущен")
-	}
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
-	if err != nil {
-		t.Fatalf("подключение к БД: %v", err)
-	}
-	st, err := NewPostgres(db, "/uploads")
-	if err != nil {
-		t.Fatalf("NewPostgres: %v", err)
-	}
+	db := testdb.Open(t)
+	st := storage.NewPostgres(db, "/uploads")
+	ctx := t.Context()
 
-	// Снимок приходит файлом и перекодируется под витрину в JPEG (см. image.go).
-	url, err := st.Save("photo.png", bytes.NewReader(onePixelPNG))
+	url, err := st.Save(ctx, "photo.png", bytes.NewReader(onePixelPNG))
 	if err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -45,39 +32,45 @@ func TestIntegrationPostgresStorageRoundTrip(t *testing.T) {
 		t.Fatalf("неожиданный URL: %q", url)
 	}
 
-	up, err := st.Get(strings.TrimPrefix(url, "/uploads/"))
+	up, err := st.Get(ctx, strings.TrimPrefix(url, "/uploads/"))
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if up.MimeType != "image/jpeg" {
-		t.Errorf("MIME-тип = %q, ожидали image/jpeg", up.MimeType)
+		t.Errorf("MIME = %q, ожидали image/jpeg", up.MimeType)
 	}
 	cfg, err := jpeg.DecodeConfig(bytes.NewReader(up.Data))
 	if err != nil {
 		t.Fatalf("сохранённые данные не читаются как JPEG: %v", err)
 	}
 	if cfg.Width != 1 || cfg.Height != 1 {
-		t.Errorf("размер изменился: %d×%d, ожидали 1×1", cfg.Width, cfg.Height)
+		t.Errorf("размер изменился: %d×%d", cfg.Width, cfg.Height)
 	}
+}
 
-	// Несуществующий файл — ошибка, а не пустой результат.
-	if _, err := st.Get("999999.jpg"); err == nil {
-		t.Error("ожидали ошибку для несуществующего файла")
+func TestIntegrationPostgresStorageRejectsBadNames(t *testing.T) {
+	db := testdb.Open(t)
+	st := storage.NewPostgres(db, "/uploads")
+	ctx := t.Context()
+
+	// Имя файла приходит из URL — оно не должно уезжать в SQL как строка.
+	for _, name := range []string{"999999.jpg", "../../etc/passwd", "1 OR 1=1", "", "abc.jpg"} {
+		if _, err := st.Get(ctx, name); err == nil {
+			t.Errorf("Get(%q) должен возвращать ошибку", name)
+		}
 	}
 }
 
 // Слишком большое фото отклоняется, а не сохраняется целиком.
 func TestIntegrationPostgresStorageTooLarge(t *testing.T) {
-	dsn := os.Getenv("TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("TEST_DATABASE_URL не задан — интеграционный тест пропущен")
+	db := testdb.Open(t)
+	st := storage.NewPostgres(db, "/uploads")
+
+	_, err := st.Save(t.Context(), "big.jpg", bytes.NewReader(make([]byte, storage.MaxUploadBytes+10)))
+	if err == nil {
+		t.Fatal("ожидали отказ для файла больше лимита")
 	}
-	db, _ := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
-	st, err := NewPostgres(db, "/uploads")
-	if err != nil {
-		t.Fatalf("NewPostgres: %v", err)
-	}
-	if _, err := st.Save("big.jpg", bytes.NewReader(make([]byte, maxUploadBytes+10))); err == nil {
-		t.Error("ожидали отказ для файла больше лимита")
+	if !strings.Contains(err.Error(), "МБ") {
+		t.Errorf("непонятное сообщение об ошибке: %v", err)
 	}
 }

@@ -36,11 +36,13 @@ export default function FilterPills({ selected, onSelect, seasonal }: Props) {
         return (
           <button
             key={id || 'all'}
+            type="button"
+            aria-pressed={active}
             onClick={() => {
               haptic('light');
               onSelect(id);
             }}
-            className={`${pillBase} ${
+            className={`min-h-[44px] whitespace-nowrap rounded-button border px-3.5 text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors ${
               active
                 ? 'neon-glow border-transparent bg-accent text-on-accent'
                 : 'border-line bg-surface text-muted'

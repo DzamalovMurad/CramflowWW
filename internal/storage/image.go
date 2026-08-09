@@ -2,10 +2,11 @@ package storage
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/jpeg"
 	_ "image/png" // регистрируем декодер PNG
-	"io"
+	"strings"
 
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp" // регистрируем декодер WebP
@@ -22,21 +23,24 @@ const (
 
 // PrepareImage декодирует снимок, при необходимости уменьшает его
 // высококачественной интерполяцией и перекодирует в JPEG.
-// Форматы, которые Go не умеет читать (например, HEIC с iPhone),
-// возвращаются без изменений — лучше сохранить как есть, чем потерять фото.
-func PrepareImage(r io.Reader) (data []byte, ext string, err error) {
-	raw, err := io.ReadAll(r)
-	if err != nil {
-		return nil, "", err
-	}
-
+//
+// Форматы, которые Go читать не умеет (HEIC с iPhone), возвращаются как есть
+// с исходным расширением: лучше сохранить оригинал, чем потерять фото.
+func PrepareImage(raw []byte, origExt string) (data []byte, ext string, err error) {
 	src, _, decErr := image.Decode(bytes.NewReader(raw))
 	if decErr != nil {
-		return raw, "", nil // формат неизвестен — кладём оригинал
+		ext = strings.ToLower(origExt)
+		if ext == "" {
+			ext = ".jpg"
+		}
+		return raw, ext, nil
 	}
 
 	b := src.Bounds()
 	w, h := b.Dx(), b.Dy()
+	if w <= 0 || h <= 0 {
+		return nil, "", fmt.Errorf("storage: некорректные размеры изображения %dx%d", w, h)
+	}
 	if w <= maxImageSide && h <= maxImageSide {
 		// Уменьшать нечего, но перекодируем в JPEG: снимок мог прийти
 		// 20-мегабайтным PNG, а на витрине это лишний вес.
@@ -44,10 +48,10 @@ func PrepareImage(r io.Reader) (data []byte, ext string, err error) {
 	}
 
 	if w >= h {
-		h = h * maxImageSide / w
+		h = max(1, h*maxImageSide/w)
 		w = maxImageSide
 	} else {
-		w = w * maxImageSide / h
+		w = max(1, w*maxImageSide/h)
 		h = maxImageSide
 	}
 	dst := image.NewRGBA(image.Rect(0, 0, w, h))
@@ -59,7 +63,7 @@ func PrepareImage(r io.Reader) (data []byte, ext string, err error) {
 func encodeJPEG(img image.Image) ([]byte, string, error) {
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: jpegQuality}); err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("storage: кодирование JPEG: %w", err)
 	}
 	return buf.Bytes(), ".jpg", nil
 }

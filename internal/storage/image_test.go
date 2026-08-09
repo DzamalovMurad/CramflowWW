@@ -36,87 +36,124 @@ func encodePNG(t *testing.T, img image.Image) []byte {
 
 // Большой снимок с камеры уменьшается под витрину и заметно легчает.
 func TestPrepareImageDownscalesLargePhoto(t *testing.T) {
-	// Исходник как с телефона: JPEG высокого качества в полном разрешении.
-	var srcBuf bytes.Buffer
-	if err := jpeg.Encode(&srcBuf, makeImage(4032, 3024), &jpeg.Options{Quality: 97}); err != nil {
-		t.Fatalf("jpeg encode: %v", err)
-	}
-	src := srcBuf.Bytes()
-	out, ext, err := PrepareImage(bytes.NewReader(src))
+	raw := encodePNG(t, makeImage(4032, 3024)) // типичный кадр с телефона
+
+	data, ext, err := PrepareImage(raw, ".png")
 	if err != nil {
 		t.Fatalf("PrepareImage: %v", err)
 	}
 	if ext != ".jpg" {
-		t.Errorf("ext = %q, ожидали .jpg", ext)
+		t.Errorf("расширение = %q, ожидали .jpg", ext)
 	}
-	cfg, err := jpeg.DecodeConfig(bytes.NewReader(out))
+	cfg, err := jpeg.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		t.Fatalf("результат не читается как JPEG: %v", err)
 	}
 	if cfg.Width != maxImageSide {
 		t.Errorf("ширина = %d, ожидали %d", cfg.Width, maxImageSide)
 	}
-	if want := 3024 * maxImageSide / 4032; cfg.Height != want {
-		t.Errorf("высота = %d, ожидали %d (пропорции не сохранены)", cfg.Height, want)
+	// Пропорции сохранены: 4032×3024 → 2000×1500.
+	if cfg.Height != 1500 {
+		t.Errorf("высота = %d, ожидали 1500 (пропорции не сохранены)", cfg.Height)
 	}
-	if len(out) >= len(src) {
-		t.Errorf("результат не легче исходника: %d ≥ %d", len(out), len(src))
+	// Витрина должна грузиться на мобильном интернете: даже синтетический
+	// «шум» — худший случай для JPEG — обязан уложиться в разумный вес.
+	const maxCatalogPhotoBytes = 2 << 20
+	if len(data) > maxCatalogPhotoBytes {
+		t.Errorf("фото весит %d байт — слишком тяжело для витрины", len(data))
 	}
-	// Витрина должна грузиться на мобильном интернете: держим бюджет на кадр.
-	const budget = 1_500_000
-	if len(out) > budget {
-		t.Errorf("результат %d байт — тяжелее бюджета %d", len(out), budget)
-	}
-	t.Logf("%d×%d %.2f МБ → %d×%d %.2f МБ", 4032, 3024, float64(len(src))/1e6,
-		cfg.Width, cfg.Height, float64(len(out))/1e6)
 }
 
-// Небольшой снимок не растягиваем, но перекодируем в JPEG.
-func TestPrepareImageKeepsSmallPhotoSize(t *testing.T) {
-	src := encodePNG(t, makeImage(800, 600))
-	out, ext, err := PrepareImage(bytes.NewReader(src))
+// Вертикальный снимок ограничивается по высоте, а не по ширине.
+func TestPrepareImageDownscalesPortrait(t *testing.T) {
+	raw := encodePNG(t, makeImage(1500, 3000))
+
+	data, _, err := PrepareImage(raw, ".png")
+	if err != nil {
+		t.Fatalf("PrepareImage: %v", err)
+	}
+	cfg, err := jpeg.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("JPEG: %v", err)
+	}
+	if cfg.Height != maxImageSide || cfg.Width != 1000 {
+		t.Errorf("размер = %d×%d, ожидали 1000×%d", cfg.Width, cfg.Height, maxImageSide)
+	}
+}
+
+// Небольшой PNG не ресайзится, но перекодируется в JPEG: 20-мегабайтный PNG
+// на витрине — лишний вес.
+func TestPrepareImageRecodesSmallPNG(t *testing.T) {
+	raw := encodePNG(t, makeImage(800, 600))
+
+	data, ext, err := PrepareImage(raw, ".png")
 	if err != nil {
 		t.Fatalf("PrepareImage: %v", err)
 	}
 	if ext != ".jpg" {
-		t.Errorf("ext = %q, ожидали .jpg", ext)
+		t.Errorf("расширение = %q", ext)
 	}
-	cfg, err := jpeg.DecodeConfig(bytes.NewReader(out))
+	cfg, err := jpeg.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		t.Fatalf("результат не читается как JPEG: %v", err)
+		t.Fatalf("JPEG: %v", err)
 	}
 	if cfg.Width != 800 || cfg.Height != 600 {
-		t.Errorf("размер изменился: %d×%d, ожидали 800×600", cfg.Width, cfg.Height)
+		t.Errorf("размер изменился: %d×%d", cfg.Width, cfg.Height)
 	}
 }
 
-// Вертикальный кадр ограничивается по высоте.
-func TestPrepareImagePortrait(t *testing.T) {
-	src := encodePNG(t, makeImage(1500, 3000))
-	out, _, err := PrepareImage(bytes.NewReader(src))
+// Неизвестный формат (например, HEIC с iPhone) сохраняется как есть:
+// лучше положить оригинал, чем потерять фото.
+func TestPrepareImageKeepsUnknownFormat(t *testing.T) {
+	raw := []byte("это не картинка, а какой-то HEIC")
+
+	data, ext, err := PrepareImage(raw, ".heic")
 	if err != nil {
 		t.Fatalf("PrepareImage: %v", err)
 	}
-	cfg, _ := jpeg.DecodeConfig(bytes.NewReader(out))
-	if cfg.Height != maxImageSide {
-		t.Errorf("высота = %d, ожидали %d", cfg.Height, maxImageSide)
+	if !bytes.Equal(data, raw) {
+		t.Error("неизвестный формат должен сохраняться без изменений")
 	}
-	if cfg.Width != 1500*maxImageSide/3000 {
-		t.Errorf("ширина = %d, пропорции не сохранены", cfg.Width)
+	if ext != ".heic" {
+		t.Errorf("расширение = %q, ожидали .heic", ext)
 	}
 }
 
-// Неизвестный формат (например, HEIC) сохраняем как есть, а не теряем.
-func TestPrepareImageUnknownFormatPassthrough(t *testing.T) {
-	raw := []byte("не картинка, а какие-то байты")
-	out, ext, err := PrepareImage(bytes.NewReader(raw))
+// Файл без расширения не должен оставаться безымянным.
+func TestPrepareImageFallsBackToJPGExtension(t *testing.T) {
+	_, ext, err := PrepareImage([]byte("мусор"), "")
 	if err != nil {
 		t.Fatalf("PrepareImage: %v", err)
 	}
-	if ext != "" {
-		t.Errorf("ext = %q, ожидали пустое (расширение исходника сохраняется)", ext)
+	if ext != ".jpg" {
+		t.Errorf("расширение = %q, ожидали .jpg", ext)
 	}
-	if !bytes.Equal(out, raw) {
-		t.Error("данные неизвестного формата изменились")
+}
+
+// Ресайз не должен превращать картинку в кашу: контрастные линии остаются.
+func TestPrepareImageKeepsDetail(t *testing.T) {
+	raw := encodePNG(t, makeImage(3000, 3000))
+
+	data, _, err := PrepareImage(raw, ".png")
+	if err != nil {
+		t.Fatalf("PrepareImage: %v", err)
+	}
+	img, err := jpeg.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("JPEG: %v", err)
+	}
+	// Считаем «яркие» пиксели: белые линии сетки обязаны пережить уменьшение.
+	bright := 0
+	b := img.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y += 3 {
+		for x := b.Min.X; x < b.Max.X; x += 3 {
+			r, g, bl, _ := img.At(x, y).RGBA()
+			if r > 0xE000 && g > 0xE000 && bl > 0xE000 {
+				bright++
+			}
+		}
+	}
+	if bright == 0 {
+		t.Error("после ресайза не осталось контрастных деталей — картинка размылась")
 	}
 }

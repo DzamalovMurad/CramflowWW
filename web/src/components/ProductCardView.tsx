@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ProductCard } from '../types';
-import { formatPrice, discountPercent } from '../types';
+import { discountPercent, formatPrice, inStock, isLowStock } from '../types';
 import { content } from '../content';
 import { haptic } from '../telegram';
 import { useCart } from '../cart';
@@ -15,14 +15,14 @@ interface Props {
 }
 
 /**
- * Карточка каталога (стиль Bunch): фото со скелетоном, бейджи, цена со скидкой.
- * Кнопка «+» после добавления плавно расширяется в счётчик [−  N  +];
+ * Карточка каталога: фото со скелетоном, бейджи, цена со скидкой.
+ * Кнопка «+» после добавления превращается в счётчик [− N +];
  * при первом добавлении фото «улетает» в корзину нижнего меню.
  */
 export default function ProductCardView({ product, index, onAdd }: Props) {
   const off = discountPercent(product.price, product.old_price);
-  const lowStock = product.stock !== undefined && product.stock > 0 && product.stock <= 5;
-  const seasonal = hasSeasonBadge(product);
+  const lowStock = isLowStock(product);
+  const available = inStock(product);
 
   const { items, setQty } = useCart();
   const inCart = items.filter((i) => i.productId === product.id);
@@ -69,7 +69,7 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
   };
 
   const firstAdd = async () => {
-    if (busy) return;
+    if (busy || !available) return;
     setBusy(true);
     haptic('medium');
     flyToCart();
@@ -89,35 +89,40 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
   };
 
   return (
-    <div
-      className="animate-fade-up"
-      style={{ animationDelay: `${Math.min(index * 40, 280)}ms` }}
-    >
+    <div className="animate-fade-up" style={{ animationDelay: `${Math.min(index * 40, 280)}ms` }}>
       <div className="relative">
         <Link
           to={`/product/${product.id}`}
           className="group block overflow-hidden rounded-card bg-tile shadow-card transition-transform duration-200 active:scale-[0.98]"
         >
+          {/* aspect-[4/5] задан заранее — сетка не дёргается, когда грузятся фото */}
           <div className="relative aspect-[4/5] w-full overflow-hidden">
-            {/* Скелетон, пока фото не загрузилось */}
             {!imgLoaded && <div className="absolute inset-0 animate-pulse bg-tile" />}
             {product.image && (
               <img
                 ref={(el) => {
                   imgRef.current = el;
+                  // Фото из кэша не вызывает onLoad — проверяем состояние сами.
                   if (el?.complete && el.naturalWidth > 0 && !imgLoaded) setImgLoaded(true);
                 }}
                 src={product.image}
                 alt={product.name}
                 loading="lazy"
+                decoding="async"
                 onLoad={() => setImgLoaded(true)}
                 className={`h-full w-full object-cover transition-all duration-500 group-active:scale-105 ${
                   imgLoaded ? 'opacity-100' : 'opacity-0'
-                }`}
+                } ${available ? '' : 'grayscale'}`}
               />
             )}
-            {/* Градиент снизу: текст и «+» читаются на любом фото */}
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[30%] bg-gradient-to-t from-black/60 to-transparent" />
+            {!available && (
+              <div className="absolute inset-0 flex items-center justify-center bg-page/55">
+                <span className="rounded-full bg-ink px-3 py-1.5 text-[11px] font-semibold text-page">
+                  {content.catalog.soldOut}
+                </span>
+              </div>
+            )}
           </div>
         </Link>
 
@@ -131,57 +136,66 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
           )}
           {product.is_hit && <span className="badge badge-hit">хит</span>}
           {off > 0 && <span className="badge badge-sale">−{off}%</span>}
-          {lowStock && <span className="badge badge-stock">осталось {product.stock}</span>}
-        </div>
-
-        {/* «+» ⇄ счётчик: контейнер плавно меняет ширину */}
-        <div
-          className={`fab-add absolute bottom-2.5 right-2.5 flex h-10 items-center overflow-hidden rounded-full transition-all duration-300 ease-in-out ${
-            qty > 0 ? 'w-[112px]' : 'w-10'
-          }`}
-        >
-          {qty > 0 ? (
-            <div className="animate-fade-in flex w-full items-center">
-              <button
-                type="button"
-                aria-label="убрать"
-                onClick={() => bump(-1)}
-                className="flex h-10 w-9 flex-shrink-0 items-center justify-center active:opacity-60"
-              >
-                <IconMinus size={16} />
-              </button>
-              <span className="flex-1 text-center font-mono text-[14px] font-bold tabular-nums">
-                {qty}
-              </span>
-              <button
-                type="button"
-                aria-label="добавить"
-                onClick={() => bump(1)}
-                className="flex h-10 w-9 flex-shrink-0 items-center justify-center active:opacity-60"
-              >
-                <IconPlus size={16} />
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              aria-label={content.catalog.addToCart}
-              onClick={firstAdd}
-              className="flex h-10 w-10 items-center justify-center"
-            >
-              <IconPlus size={20} />
-            </button>
+          {lowStock && (
+            <span className="badge badge-stock">
+              {content.catalog.lastLeft} {product.stock}
+            </span>
           )}
         </div>
+
+        {/* «+» ⇄ счётчик. Кнопки 44px: промах здесь стоит лишнего букета в корзине. */}
+        {available && (
+          <div
+            className={`fab-add absolute bottom-2.5 right-2.5 flex h-11 items-center overflow-hidden rounded-full transition-all duration-300 ease-in-out ${
+              qty > 0 ? 'w-[124px]' : 'w-11'
+            }`}
+          >
+            {qty > 0 ? (
+              <div className="animate-fade-in flex w-full items-center">
+                <button
+                  type="button"
+                  aria-label="убрать один"
+                  onClick={() => bump(-1)}
+                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center active:opacity-60"
+                >
+                  <IconMinus size={16} />
+                </button>
+                <span className="nums flex-1 text-center text-[15px] font-semibold">
+                  {qty}
+                </span>
+                <button
+                  type="button"
+                  aria-label="добавить ещё один"
+                  onClick={() => bump(1)}
+                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center active:opacity-60"
+                >
+                  <IconPlus size={16} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                aria-label={`${content.catalog.addToCart}: ${product.name}`}
+                onClick={firstAdd}
+                disabled={busy}
+                className="flex h-11 w-11 items-center justify-center"
+              >
+                <IconPlus size={20} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      <Link to={`/product/${product.id}`} className="mt-2.5 block">
-        <p className="label mb-1 !text-[10px] text-accent-2">{content.catalog.deliveryToday}</p>
-        <p className="line-clamp-1 text-[14px] font-bold leading-snug">{product.name}</p>
+      <Link to={`/product/${product.id}`} className="mt-3.5 block">
+        {available && (
+          <p className="label mb-1 !text-[10px] text-accent-2">{content.catalog.deliveryToday}</p>
+        )}
+        <p className="line-clamp-1 text-[15px] font-medium leading-snug">{product.name}</p>
         <div className="mt-1 flex items-baseline gap-2">
-          <span className="font-mono text-[16px] font-bold">{formatPrice(product.price)}</span>
+          <span className="price text-[17px]">{formatPrice(product.price)}</span>
           {off > 0 && (
-            <span className="font-mono text-[13px] font-medium text-muted line-through">
+            <span className="nums text-[13px] text-muted line-through">
               {formatPrice(product.old_price!)}
             </span>
           )}

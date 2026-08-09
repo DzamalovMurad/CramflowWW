@@ -1,7 +1,15 @@
-# Конфигурация Railway: сборка через Dockerfile.
+# Единственный источник правды о деплое. Хостинг — только Railway.
 [build]
 builder = "dockerfile"
+dockerfilePath = "Dockerfile"
 
 [deploy]
+# Healthcheck ходит в /api/health, который реально проверяет соединение с БД:
+# сервис без базы бесполезен, и Railway не должен считать его живым.
 healthcheckPath = "/api/health"
+healthcheckTimeout = 30
 restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+# Одна реплика: в приложении есть in-memory кэш витрины и состояние визардов
+# бота. Масштабирование потребует вынести их наружу — сейчас это не нужно.
+numReplicas = 1

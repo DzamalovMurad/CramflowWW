@@ -1,11 +1,13 @@
 package storage
 
 import (
-	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gorm.io/gorm"
@@ -13,61 +15,50 @@ import (
 	"github.com/dzamalovmurad/cramflowww/internal/model"
 )
 
-// Postgres хранит фото товаров в БД. Нужен там, где нет постоянного диска
-// (бесплатные тарифы PaaS): при рестарте контейнера файлы на диске пропадают,
-// а строки в базе — нет. Фото немного и они небольшие, так что bytea уместен.
+// Postgres хранит фото товаров в БД. Это режим по умолчанию: Railway без
+// подключённого Volume теряет файлы на диске при каждом редеплое, и витрина
+// молча остаётся без картинок. Строки в базе переживают деплой всегда.
 type Postgres struct {
 	DB      *gorm.DB
-	BaseURL string // префикс URL, например /uploads
+	BaseURL string
 }
 
-func NewPostgres(db *gorm.DB, baseURL string) (*Postgres, error) {
-	if err := db.AutoMigrate(&model.Upload{}); err != nil {
-		return nil, fmt.Errorf("storage: миграция uploads: %w", err)
-	}
-	return &Postgres{DB: db, BaseURL: strings.TrimSuffix(baseURL, "/")}, nil
+// NewPostgres — таблица uploads создаётся миграцией 0001, здесь только проверка.
+func NewPostgres(db *gorm.DB, baseURL string) *Postgres {
+	return &Postgres{DB: db, BaseURL: strings.TrimSuffix(baseURL, "/")}
 }
 
-// Фото принимаются файлом в оригинале, поэтому лимит равен пределу,
-// до которого Telegram вообще отдаёт файлы ботам.
-const maxUploadBytes = 20 << 20
-
-func (p *Postgres) Save(name string, r io.Reader) (string, error) {
-	data, err := io.ReadAll(io.LimitReader(r, maxUploadBytes+1))
+func (p *Postgres) Save(ctx context.Context, name string, r io.Reader) (string, error) {
+	raw, err := readLimited(r)
 	if err != nil {
 		return "", err
 	}
-	if len(data) > maxUploadBytes {
-		return "", fmt.Errorf("storage: фото больше %d МБ", maxUploadBytes>>20)
+	data, ext, err := PrepareImage(raw, filepath.Ext(name))
+	if err != nil {
+		return "", err
 	}
 
-	ext := filepath.Ext(name)
-	// Готовим снимок к витрине: ресайз под экран + JPEG (см. image.go).
-	if prepared, newExt, err := PrepareImage(bytes.NewReader(data)); err == nil {
-		data = prepared
-		if newExt != "" {
-			ext = newExt
-		}
-	}
-	if ext == "" {
-		ext = ".jpg"
-	}
 	up := &model.Upload{
 		Ext:      ext,
 		MimeType: http.DetectContentType(data),
 		Data:     data,
 	}
-	if err := p.DB.Create(up).Error; err != nil {
-		return "", err
+	if err := p.DB.WithContext(ctx).Create(up).Error; err != nil {
+		return "", fmt.Errorf("storage: сохранение фото в БД: %w", err)
 	}
 	return fmt.Sprintf("%s/%d%s", p.BaseURL, up.ID, ext), nil
 }
 
 // Get возвращает содержимое загруженного файла по имени вида «42.jpg».
-func (p *Postgres) Get(fileName string) (*model.Upload, error) {
+func (p *Postgres) Get(ctx context.Context, fileName string) (*model.Upload, error) {
 	idPart := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+	// Имя приходит из URL — превращаем в число сами, а не отдаём строку в WHERE.
+	id, err := strconv.ParseUint(idPart, 10, 64)
+	if err != nil {
+		return nil, errors.New("storage: некорректное имя файла")
+	}
 	var up model.Upload
-	if err := p.DB.Where("id = ?", idPart).First(&up).Error; err != nil {
+	if err := p.DB.WithContext(ctx).First(&up, id).Error; err != nil {
 		return nil, err
 	}
 	return &up, nil
