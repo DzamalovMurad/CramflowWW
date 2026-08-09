@@ -38,12 +38,12 @@ export default function Confirmation() {
         <div className="animate-pop-in flex h-16 w-16 items-center justify-center rounded-full bg-accent text-on-accent">
           <IconCheck size={26} />
         </div>
-        <h1 className="title animate-fade-up mt-7">{c.title}</h1>
+        <h1 className="display animate-fade-up mt-6 text-[26px]">{c.title}</h1>
         <p
           className="animate-fade-up mt-2 text-sm lowercase text-muted"
           style={{ animationDelay: '80ms' }}
         >
-          {content.order.number} <span className="font-semibold text-ink">#{id}</span> · {c.subtitle}
+          {content.order.number} <span className="font-bold text-ink">#{id}</span> · {c.subtitle}
         </p>
       </div>
 
@@ -69,7 +69,7 @@ export default function Confirmation() {
       <div className="px-4 pt-8">
         <Link
           to="/catalog"
-          className="flex min-h-[52px] w-full items-center justify-center rounded-button bg-ink text-[15px] font-semibold lowercase text-page transition-transform active:scale-[0.98]"
+          className="flex min-h-[52px] w-full items-center justify-center rounded-button bg-ink text-[15px] font-bold lowercase text-page transition-transform active:scale-[0.98]"
         >
           {c.backToCatalog}
         </Link>

@@ -1,47 +1,41 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { MenuHeader } from "../components/Header";
-import CategoryChips from "../components/CategoryChips";
-import FilterPills from "../components/FilterPills";
-import ProductCardView from "../components/ProductCardView";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { MenuHeader } from '../components/Header';
+import CategoryChips from '../components/CategoryChips';
+import FilterPills from '../components/FilterPills';
+import ProductCardView from '../components/ProductCardView';
+import { Link } from 'react-router-dom';
 import {
   fetchAllProducts,
   fetchFreshToday,
   fetchMyOrders,
   fetchProduct,
   fetchProducts,
-} from "../api";
-import { useCart } from "../cart";
-import { haptic } from "../telegram";
-import { ACTIVE_STATUSES, content, statusLabels } from "../content";
-import {
-  formatDate,
-  formatPrice,
-  inStock,
-  type Order,
-  type ProductCard,
-} from "../types";
-import { IconSort } from "../components/icons";
+} from '../api';
+import { useCart } from '../cart';
+import { haptic } from '../telegram';
+import { ACTIVE_STATUSES, content, statusLabels } from '../content';
+import { formatDate, formatPrice, inStock, type Order, type ProductCard } from '../types';
+import { IconSort } from '../components/icons';
 
 const c = content.home;
 
-type Sort = "" | "cheap" | "expensive";
+type Sort = '' | 'cheap' | 'expensive';
 
 /**
  * Главная = меню (скелет Bunch): баннеры → sticky-фильтры → сетка товаров →
  * горизонтальная полка WOW → шторка сортировки. Букеты видны сразу после загрузки.
  */
 export default function Home() {
-  const [category, setCategory] = useState("");
-  const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<Sort>("");
+  const [category, setCategory] = useState('');
+  const [filter, setFilter] = useState('');
+  const [sort, setSort] = useState<Sort>('');
   const [sheetOpen, setSheetOpen] = useState(false);
   // Сезонная подборка «к 1 сентября» — отбор в браузере, запрос к API не меняется.
   const [season, setSeason] = useState(false);
   const seasonOn = isSeasonActive();
 
   const [products, setProducts] = useState<ProductCard[] | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
   const [freshToday, setFreshToday] = useState<string | null>(null);
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const { add } = useCart();
@@ -50,9 +44,8 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
     setProducts(null);
-    setError("");
-    const load =
-      category || filter ? fetchProducts(category, filter) : fetchAllProducts();
+    setError('');
+    const load = category || filter ? fetchProducts(category, filter) : fetchAllProducts();
     load
       .then((list) => !cancelled && setProducts(list))
       .catch((e) => !cancelled && setError(e.message));
@@ -70,11 +63,7 @@ export default function Home() {
   // Состояние активного заказа должно быть видно сразу, без вопросов менеджеру.
   useEffect(() => {
     fetchMyOrders()
-      .then((list) =>
-        setActiveOrder(
-          list.find((o) => ACTIVE_STATUSES.includes(o.status)) ?? null,
-        ),
-      )
+      .then((list) => setActiveOrder(list.find((o) => ACTIVE_STATUSES.includes(o.status)) ?? null))
       .catch(() => {});
   }, []);
 
@@ -96,33 +85,30 @@ export default function Home() {
       productName: product.name,
       flowersCount: variant.quantity,
       price: variant.price,
-      image: product.images[0]?.url ?? "",
+      image: product.images[0]?.url ?? '',
     });
-    haptic("success");
+    haptic('success');
   };
 
   const sorted = useMemo(() => {
     if (!products) return null;
-    if (sort === "cheap")
-      return [...products].sort((a, b) => a.price - b.price);
-    if (sort === "expensive")
-      return [...products].sort((a, b) => b.price - a.price);
+    if (sort === 'cheap') return [...products].sort((a, b) => a.price - b.price);
+    if (sort === 'expensive') return [...products].sort((a, b) => b.price - a.price);
     return products;
   }, [products, sort]);
 
   // Полка WOW показывается только на «чистой» витрине (без фильтров).
   const shelf = useMemo(() => {
     if (category || filter || !products) return [];
-    return products.filter((p) => p.category === "WOW");
+    return products.filter((p) => p.category === 'WOW');
   }, [products, category, filter]);
   const grid = useMemo(() => {
     if (!sorted) return null;
     if (shelf.length === 0) return sorted;
-    return sorted.filter((p) => p.category !== "WOW");
+    return sorted.filter((p) => p.category !== 'WOW');
   }, [sorted, shelf]);
 
-  const minPrice =
-    grid && grid.length > 0 ? Math.min(...grid.map((p) => p.price)) : 0;
+  const minPrice = grid && grid.length > 0 ? Math.min(...grid.map((p) => p.price)) : 0;
   const banners = 1 + (freshToday ? 1 : 0);
 
   return (
@@ -139,7 +125,7 @@ export default function Home() {
             <span className="label block !text-[10px]">
               {c.activeOrder} #{activeOrder.id}
             </span>
-            <span className="mt-0.5 block truncate text-[15px] font-medium">
+            <span className="mt-0.5 block truncate text-[14px] font-bold lowercase">
               {statusLabels[activeOrder.status] ?? activeOrder.status_label}
             </span>
           </span>
@@ -151,17 +137,11 @@ export default function Home() {
 
       {/* БАННЕРЫ */}
       <section className="px-4 pt-3">
-        <div
-          ref={bannerRef}
-          className="banner-scroll"
-          onScroll={onBannerScroll}
-        >
+        <div ref={bannerRef} className="banner-scroll" onScroll={onBannerScroll}>
           <div className="banner-card relative bg-ink p-5">
             <p className="label mb-2 !text-accent-ink">{c.badge}</p>
-            <h1 className="display text-page">{c.title}</h1>
-            <p className="mt-3 max-w-[15rem] text-[13px] leading-relaxed text-page opacity-70">
-              {c.subtitle}
-            </p>
+            <h1 className="display text-[26px] text-page">{c.title}</h1>
+            <p className="mt-1.5 text-[12px] lowercase text-page/70">{c.subtitle}</p>
             <span className="absolute right-4 top-4 h-2.5 w-2.5 rounded-full bg-accent" />
           </div>
           {freshToday && (
@@ -173,9 +153,7 @@ export default function Home() {
                 </span>
                 {c.freshToday}
               </p>
-              <p className="mt-1 text-[17px] font-medium leading-snug">
-                {freshToday}
-              </p>
+              <p className="display text-[20px]">{freshToday}</p>
             </div>
           )}
         </div>
@@ -185,7 +163,7 @@ export default function Home() {
               <span
                 key={i}
                 className={`h-1.5 rounded-full transition-all ${
-                  i === bannerIdx ? "w-4 bg-ink" : "w-1.5 bg-line"
+                  i === bannerIdx ? 'w-4 bg-ink' : 'w-1.5 bg-line'
                 }`}
               />
             ))}
@@ -208,13 +186,11 @@ export default function Home() {
             type="button"
             aria-label={content.sort.title}
             onClick={() => {
-              haptic("light");
+              haptic('light');
               setSheetOpen(true);
             }}
             className={`mb-2 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border ${
-              sort
-                ? "border-transparent bg-accent text-on-accent"
-                : "border-line bg-surface text-ink"
+              sort ? 'border-transparent bg-accent text-on-accent' : 'border-line bg-surface text-ink'
             }`}
           >
             <IconSort size={16} />
@@ -224,18 +200,15 @@ export default function Home() {
 
       {/* СЕТКА ТОВАРОВ */}
       {grid !== null && grid.length > 0 && (
-        <div className="flex items-baseline justify-between px-4 pb-2 pt-7">
-          <h2 className="heading">{c.sectionTitle}</h2>
+        <div className="flex items-baseline justify-between px-4 pb-1 pt-4">
+          <h2 className="display text-[22px]">{c.sectionTitle}</h2>
           <p className="label !text-[11px]">
-            {grid.length} {content.catalog.count} · {content.catalog.priceFrom}{" "}
-            {formatPrice(minPrice)}
+            {grid.length} {content.catalog.count} · {content.catalog.priceFrom} {formatPrice(minPrice)}
           </p>
         </div>
       )}
 
-      {error && (
-        <p className="p-6 text-center text-sm lowercase text-muted">{error}</p>
-      )}
+      {error && <p className="p-6 text-center text-sm lowercase text-muted">{error}</p>}
 
       {grid === null && !error && (
         <div className="grid grid-cols-2 gap-x-3 gap-y-6 p-4">
@@ -256,17 +229,9 @@ export default function Home() {
       )}
 
       {grid !== null && grid.length > 0 && (
-        <div
-          key={`${category}|${filter}|${sort}`}
-          className="grid grid-cols-2 gap-x-3 gap-y-6 p-4"
-        >
+        <div key={`${category}|${filter}|${sort}`} className="grid grid-cols-2 gap-x-3 gap-y-6 p-4">
           {grid.map((p, i) => (
-            <ProductCardView
-              key={p.id}
-              product={p}
-              index={i}
-              onAdd={addCheapest}
-            />
+            <ProductCardView key={p.id} product={p} index={i} onAdd={addCheapest} />
           ))}
         </div>
       )}
@@ -275,22 +240,20 @@ export default function Home() {
       {shelf.length > 0 && (
         <section className="pt-2">
           <div className="flex items-baseline justify-between px-4">
-            <h2 className="heading">{c.shelfTitle}</h2>
+            <h2 className="display text-[22px]">{c.shelfTitle}</h2>
             <button
               type="button"
               onClick={() => {
-                haptic("light");
-                setCategory("WOW");
-                window.scrollTo({ top: 0, behavior: "smooth" });
+                haptic('light');
+                setCategory('WOW');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              className="-mr-2 flex min-h-[44px] items-center px-2 text-[13px] font-semibold lowercase text-accent-2"
+              className="-mr-2 flex min-h-[44px] items-center px-2 text-[13px] font-bold lowercase text-accent-2"
             >
               {c.shelfAll} {shelf.length} →
             </button>
           </div>
-          <p className="mt-1 px-4 text-[12px] lowercase text-muted">
-            {c.shelfCaption}
-          </p>
+          <p className="mt-1 px-4 text-[12px] lowercase text-muted">{c.shelfCaption}</p>
           <div className="no-scrollbar mt-3 flex gap-3 overflow-x-auto px-4">
             {shelf.map((p, i) => (
               <div key={p.id} className="w-[210px] flex-shrink-0">
@@ -304,45 +267,38 @@ export default function Home() {
       {/* ШТОРКА СОРТИРОВКИ */}
       {sheetOpen && (
         <>
-          <div
-            className="sheet-overlay animate-fade-in"
-            onClick={() => setSheetOpen(false)}
-          />
+          <div className="sheet-overlay animate-fade-in" onClick={() => setSheetOpen(false)} />
           <div className="sheet">
             <div className="sheet-handle" />
-            <h3 className="heading mb-3">{content.sort.title}</h3>
+            <h3 className="display mb-3 text-[19px]">{content.sort.title}</h3>
             {(
               [
-                ["", content.sort.default],
-                ["cheap", content.sort.cheap],
-                ["expensive", content.sort.expensive],
+                ['', content.sort.default],
+                ['cheap', content.sort.cheap],
+                ['expensive', content.sort.expensive],
               ] as [Sort, string][]
             ).map(([value, label]) => {
               const active = sort === value;
               return (
                 <button
-                  key={value || "default"}
+                  key={value || 'default'}
                   type="button"
                   onClick={() => {
-                    haptic("light");
+                    haptic('light');
                     setSort(value);
                     setSheetOpen(false);
                   }}
                   className="flex min-h-[52px] w-full items-center justify-between"
                 >
-                  <span
-                    className={`text-[15px] lowercase ${active ? "font-semibold" : "text-muted"}`}
-                  >
+                  <span className={`text-[15px] lowercase ${active ? 'font-bold' : 'text-muted'}`}>
                     {label}
                   </span>
                   <span
                     className={`flex h-5 w-5 items-center justify-center rounded-full border-2 ${
-                      active ? "border-accent" : "border-line"
+                      active ? 'border-accent' : 'border-line'
                     }`}
                   >
-                    {active && (
-                      <span className="h-2.5 w-2.5 rounded-full bg-accent" />
-                    )}
+                    {active && <span className="h-2.5 w-2.5 rounded-full bg-accent" />}
                   </span>
                 </button>
               );

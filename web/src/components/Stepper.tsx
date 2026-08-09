@@ -29,7 +29,7 @@ export default function Stepper({ value, onChange, min = 1, max = 99 }: Props) {
       >
         <IconMinus size={16} />
       </button>
-      <span className="nums min-w-7 text-center text-[15px] font-semibold">{value}</span>
+      <span className="min-w-7 text-center text-sm font-bold tabular-nums">{value}</span>
       <button
         type="button"
         aria-label="увеличить"

@@ -35,11 +35,11 @@ export default function Cart() {
           <div className="animate-pop-in flex h-16 w-16 items-center justify-center rounded-full bg-tile text-muted">
             <IconBag size={26} />
           </div>
-          <p className="mt-5 text-[17px] font-semibold lowercase">{content.cart.empty}</p>
+          <p className="mt-5 text-[17px] font-bold lowercase">{content.cart.empty}</p>
           <p className="mt-1 text-sm lowercase text-muted">{content.cart.emptyHint}</p>
           <Link
             to="/catalog"
-            className="mt-7 flex min-h-[48px] items-center rounded-button bg-ink px-7 text-sm font-semibold lowercase text-page"
+            className="mt-7 flex min-h-[48px] items-center rounded-button bg-ink px-7 text-sm font-bold lowercase text-page"
           >
             {content.cart.toCatalog}
           </Link>
@@ -77,7 +77,7 @@ export default function Cart() {
               <div className="flex min-w-0 flex-1 flex-col">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate text-[15px] font-medium">{item.productName}</p>
+                    <p className="truncate text-sm font-medium lowercase">{item.productName}</p>
                     <p className="mt-0.5 text-xs lowercase text-muted">
                       {item.flowersCount} {content.product.flowersUnit} {content.cart.inBouquet}
                     </p>
@@ -92,7 +92,7 @@ export default function Cart() {
                 </div>
                 <div className="mt-auto flex items-center justify-between pt-2">
                   <Stepper value={item.qty} onChange={(v) => setQty(item.variantId, v)} />
-                  <span className="price text-[16px]">
+                  <span className="font-mono text-[15px] font-bold">
                     {formatPrice(item.price * item.qty)}
                   </span>
                 </div>
@@ -105,11 +105,11 @@ export default function Cart() {
       <div className="pb-safe fixed bottom-0 left-1/2 z-20 w-full max-w-md -translate-x-1/2 border-t border-line bg-page/95 px-4 pt-3 backdrop-blur">
         <div className="mb-3 flex items-baseline justify-between">
           <span className="text-sm lowercase text-muted">{content.cart.total}</span>
-          <span className="price text-[22px]">{formatPrice(total)}</span>
+          <span className="font-mono text-xl font-bold">{formatPrice(total)}</span>
         </div>
         <button
           onClick={() => navigate('/checkout')}
-          className="btn-accent min-h-[52px] w-full rounded-button text-[15px] font-semibold text-on-accent"
+          className="btn-accent min-h-[52px] w-full rounded-button text-[15px] font-bold lowercase text-on-accent"
         >
           {content.cart.checkout}
         </button>

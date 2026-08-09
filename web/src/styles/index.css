@@ -28,22 +28,10 @@
   --c-season-line: rgba(154, 85, 24, 0.26);
   --c-season-on: #FFF7EF;
 
-  /* Типографика — две гарнитуры и ни одной лишней.
-     Manrope: весь функциональный интерфейс — кнопки, карточки, цены, формы.
-     Cormorant Garamond: только крупные брендовые фразы (hero, «заказ принят»,
-     название букета на его странице). Антиква в мелком тексте не читается,
-     поэтому ниже 24px она не используется нигде. */
-  --font-body: 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-display: 'Cormorant Garamond', 'Iowan Old Style', Garamond, Georgia, 'Times New Roman', serif;
-
-  /* Шкала. Значения в px, а не rem: Telegram Mini App живёт в webview
-     с собственным масштабом, и rem там даёт непредсказуемый размер. */
-  --t-hero: 34px; /* брендовая фраза на главной */
-  --t-title: 28px; /* название букета, «заказ принят» */
-  --t-section: 20px; /* заголовки секций */
-  --t-body: 15px; /* основной текст, поля форм */
-  --t-small: 13px; /* вторичное */
-  --t-label: 11px; /* надписи-метки капсом */
+  /* Типографика: Onest — текст и заголовки, JetBrains Mono — цены/бейджи/подписи */
+  --font-body: 'Onest', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Onest', system-ui, sans-serif; /* заголовки — жирный гротеск */
+  --font-mono: 'JetBrains Mono', 'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace;
 
   /* Геометрия */
   --radius-card: 20px; /* карточки, плитки фото */
@@ -83,16 +71,6 @@
   --grain-opacity: 0.035;
 }
 
-/* На больших телефонах брендовые заголовки могут дышать свободнее.
-   Функциональные размеры не трогаем: 15px читается одинаково везде. */
-@media (min-width: 412px) {
-  :root {
-    --t-hero: 38px;
-    --t-title: 30px;
-    --t-section: 21px;
-  }
-}
-
 /* ============================================================ */
 
 /* Видимый фокус для клавиатуры/скринридеров, не мешает тапам */
@@ -107,14 +85,8 @@ body {
   background: var(--c-bg);
   color: var(--c-text);
   font-family: var(--font-body);
-  font-size: var(--t-body);
-  /* 400 по умолчанию: раньше базовым был полужирный, и на его фоне
-     «важное» уже нечем было выделить. */
-  font-weight: 400;
-  line-height: 1.55;
-  letter-spacing: -0.005em;
+  font-size: 16px;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   overscroll-behavior-y: none;
 }
@@ -123,66 +95,24 @@ body {
   padding-top: env(safe-area-inset-top);
 }
 
-/* ─── Типографические роли ───────────────────────────────────
-   Пять классов на всё приложение. Размер и вес задаются здесь, а не
-   утилитами по месту: иначе через месяц в проекте снова девять разных
-   заголовков и всё жирное. */
-
-/* Брендовая фраза: антиква, светлое начертание, крупный кегль.
-   Регистр не трогаем — заглавная буква здесь и создаёт ощущение марки. */
+/* Крупные заголовки: очень жирный гротеск, плотный интерлиньяж */
 .display {
   font-family: var(--font-display);
-  font-weight: 400;
-  font-size: var(--t-hero);
-  letter-spacing: -0.005em;
-  line-height: 1.08;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+  text-transform: lowercase;
 }
 
-/* Название букета и другие крупные заголовки-«вещи». */
-.title {
-  font-family: var(--font-display);
-  font-weight: 500;
-  font-size: var(--t-title);
-  letter-spacing: -0.005em;
-  line-height: 1.12;
-}
-
-/* Функциональный заголовок секции: гротеск, полужирный, плотный трекинг. */
-.heading {
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: var(--t-section);
-  letter-spacing: -0.02em;
-  line-height: 1.2;
-}
-
-/* Надпись-метка: капс, разреженный трекинг, приглушённый цвет.
-   Вес 600, а не 700: капс и так «громкий», жирность делает его крикливым. */
+/* Подписи секций — моноширинным капсом, как у Bunch */
 .label {
-  font-family: var(--font-body);
-  font-size: var(--t-label);
-  font-weight: 600;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
   color: var(--c-muted);
   text-transform: uppercase;
-  letter-spacing: 0.09em;
-  line-height: 1.3;
+  letter-spacing: 0.06em;
   font-variant-numeric: tabular-nums;
-}
-
-/* Цена: полужирный гротеск с моноширинными цифрами — колонки сумм
-   в корзине и заказах выравниваются сами, без табличной вёрстки. */
-.price {
-  font-family: var(--font-body);
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: 'tnum' 1;
-}
-
-/* Цифры в интерфейсе, где важно ровное место под символ (счётчики, суммы). */
-.nums {
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: 'tnum' 1;
 }
 
 /* Горизонтальные ленты (чипы, галерея) — без скроллбара */
@@ -345,10 +275,10 @@ body {
   gap: 4px;
   padding: 5px 10px;
   border-radius: 9999px;
-  font-family: var(--font-body);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   line-height: 1;
   background: rgba(0, 0, 0, 0.4);
@@ -387,7 +317,7 @@ body {
 .tab {
   position: relative;
   white-space: nowrap;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: -0.01em;
   transition: color 0.2s ease;
   color: var(--c-muted);

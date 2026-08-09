@@ -465,7 +465,7 @@ export default function Checkout() {
               <Field label={c.promo}>
                 {promo ? (
                   <div className="flex min-h-[48px] items-center justify-between rounded-input border border-accent/50 bg-surface px-4 shadow-[0_0_10px_rgba(128,255,0,0.12)]">
-                    <span className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.06em]">
+                    <span className="flex items-center gap-2 font-mono text-[13px] font-bold uppercase">
                       <span className="h-1.5 w-1.5 rounded-full bg-accent" />
                       {promo.code} <span className="text-accent-2">−{promoLabel(promo)}</span>
                     </span>
@@ -495,7 +495,7 @@ export default function Checkout() {
                     <button
                       type="button"
                       onClick={applyPromo}
-                      className="min-h-[48px] whitespace-nowrap rounded-input border border-line bg-surface px-4 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink transition-transform active:scale-95"
+                      className="min-h-[48px] whitespace-nowrap rounded-input border border-line bg-surface px-4 font-mono text-[12px] font-bold uppercase tracking-wide text-ink transition-transform active:scale-95"
                     >
                       {c.promoApply}
                     </button>
@@ -509,16 +509,16 @@ export default function Checkout() {
 
         {promo && (
           <div className="rounded-card border border-line bg-surface p-4">
-            <div className="nums flex justify-between text-[13px] text-muted">
+            <div className="flex justify-between font-mono text-[13px] uppercase text-muted">
               <span>{c.subtotal}</span>
               <span>{formatPrice(total)}</span>
             </div>
             {promoBelowMinimum ? (
-              <p className="mt-1.5 text-[13px] text-muted">
+              <p className="mt-1.5 font-mono text-[13px] lowercase text-muted">
                 {c.promoFrom} {formatPrice(promo.min_order_amount ?? 0)}
               </p>
             ) : (
-              <div className="nums mt-1.5 flex justify-between text-[13px] text-accent-2">
+              <div className="mt-1.5 flex justify-between font-mono text-[13px] uppercase text-accent-2">
                 <span>
                   {c.discount} {promoLabel(promo)}
                 </span>
@@ -539,7 +539,7 @@ export default function Checkout() {
         )}
         <div className="mb-2.5 flex items-baseline justify-between">
           <span className="label">{c.total}</span>
-          <span className="price text-[26px]">
+          <span className="text-[24px] font-extrabold tracking-tight">
             {formatPrice(discounted)}
           </span>
         </div>
@@ -547,7 +547,7 @@ export default function Checkout() {
           type="button"
           onClick={submit}
           disabled={submitting}
-          className="btn-accent btn-accent-strong min-h-[52px] w-full rounded-button text-[15px] font-semibold lowercase text-on-accent disabled:opacity-50"
+          className="btn-accent btn-accent-strong min-h-[52px] w-full rounded-button text-[15px] font-bold lowercase text-on-accent disabled:opacity-50"
         >
           {submitting ? c.submitting : error ? c.submitRetry : c.submit}
         </button>
@@ -576,7 +576,7 @@ function Choice({
         haptic('light');
         onClick();
       }}
-      className={`min-h-[48px] rounded-input border px-2 text-[13px] font-semibold lowercase transition-all duration-200 active:scale-[0.97] disabled:opacity-35 ${
+      className={`min-h-[48px] rounded-input border px-2 text-[13px] font-bold lowercase transition-all duration-200 active:scale-[0.97] disabled:opacity-35 ${
         active
           ? 'neon-glow border-transparent bg-accent text-on-accent'
           : 'border-line bg-surface text-muted'

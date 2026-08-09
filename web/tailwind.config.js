@@ -29,10 +29,8 @@ export default {
         float: 'var(--shadow-float)',
       },
       fontFamily: {
-        // Manrope — весь интерфейс; display (Cormorant Garamond) — только
-        // брендовые заголовки, поэтому отдельной утилитой, а не по умолчанию.
         sans: 'var(--font-body)',
-        display: 'var(--font-display)',
+        mono: 'var(--font-mono)',
       },
     },
   },
