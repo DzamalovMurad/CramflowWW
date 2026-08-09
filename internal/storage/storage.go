@@ -33,6 +33,18 @@ func NewLocal(dir, baseURL string) (*Local, error) {
 	return &Local{Dir: dir, BaseURL: strings.TrimSuffix(baseURL, "/")}, nil
 }
 
+// CheckWritable проверяет, что в каталог действительно можно писать.
+// MkdirAll при старте проходит и на чужом каталоге: том монтируется поверх
+// образа со своим владельцем, и отказ вылезал только когда админ присылал
+// фото. Пробная запись переносит эту новость на старт сервиса.
+func (l *Local) CheckWritable() error {
+	probe := filepath.Join(l.Dir, ".write-probe")
+	if err := os.WriteFile(probe, []byte("ok"), 0o644); err != nil {
+		return fmt.Errorf("storage: каталог %s недоступен для записи: %w", l.Dir, err)
+	}
+	return os.Remove(probe)
+}
+
 func (l *Local) Save(_ context.Context, name string, r io.Reader) (string, error) {
 	raw, err := readLimited(r)
 	if err != nil {

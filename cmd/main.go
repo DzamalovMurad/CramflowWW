@@ -260,6 +260,12 @@ func newStorage(cfg *config.Config, db *gorm.DB, log *slog.Logger) (storage.Stor
 	if err != nil {
 		return nil, nil, err
 	}
+	// Не валим сервис: витрина и заказы работают и без записи фото, но админ
+	// должен узнать о проблеме из лога, а не из отказа при отправке снимка.
+	if err := local.CheckWritable(); err != nil {
+		log.Error("каталог фото недоступен для записи — новые снимки товаров сохранить не получится",
+			"dir", cfg.UploadDir, "err", err)
+	}
 	log.Warn("фото товаров хранятся на диске — без подключённого Volume они пропадут при редеплое",
 		"dir", cfg.UploadDir)
 	return local, nil, nil
