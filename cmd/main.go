@@ -47,6 +47,8 @@ func main() {
 		sqlDB.SetConnMaxLifetime(30 * time.Minute)
 	}
 
+	logSchema(db)
+	addMissingNotNullColumns(db)
 	backfillNullDefaults(db)
 
 	// Миграции: GORM AutoMigrate покрывает всю схему (SQL-эквивалент — в /migrations).
@@ -196,6 +198,104 @@ func backfillNullDefaults(db *gorm.DB) {
 		} else if res.RowsAffected > 0 {
 			log.Printf("бэкфилл %s.%s: заполнено строк — %d", c.table, c.column, res.RowsAffected)
 		}
+	}
+}
+
+// addMissingNotNullColumns добавляет колонки, которые модель объявляет NOT NULL,
+// а в существующей таблице их ещё нет. Сам AutoMigrate такую колонку добавить
+// не может: «ADD COLUMN … NOT NULL» без DEFAULT падает на непустой таблице
+// (SQLSTATE 23502), и приложение не стартует. Добавляем с DEFAULT, чтобы старые
+// строки получили осмысленное значение; copyFrom переносит данные из колонки
+// прежнего имени, если схема БД отстала от модели.
+// Имена и типы константны (не из пользовательского ввода) — подстановка безопасна.
+func addMissingNotNullColumns(db *gorm.DB) {
+	columns := []struct{ table, column, ddl, copyFrom string }{
+		{"products", "name", "text NOT NULL DEFAULT ''", ""},
+		{"products", "category", "text NOT NULL DEFAULT ''", ""},
+		{"products", "is_hidden", "boolean NOT NULL DEFAULT false", ""},
+		{"products", "is_hit", "boolean NOT NULL DEFAULT false", ""},
+		{"products", "stock", "bigint NOT NULL DEFAULT 0", ""},
+		{"product_variants", "quantity", "bigint NOT NULL DEFAULT 0", ""},
+		{"product_variants", "price", "bigint NOT NULL DEFAULT 0", ""},
+		{"product_variants", "old_price", "bigint NOT NULL DEFAULT 0", ""},
+		{"product_images", "url", "text NOT NULL DEFAULT ''", ""},
+		{"promo_codes", "code", "text NOT NULL DEFAULT ''", ""},
+		{"promo_codes", "discount_percent", "bigint NOT NULL DEFAULT 0", "discount"},
+		{"promo_codes", "uses", "bigint NOT NULL DEFAULT 0", ""},
+		{"orders", "total_price", "bigint NOT NULL DEFAULT 0", ""},
+		{"orders", "delivery_address", "text NOT NULL DEFAULT ''", ""},
+		{"orders", "delivery_date", "text NOT NULL DEFAULT ''", ""},
+		{"orders", "delivery_time", "text NOT NULL DEFAULT ''", ""},
+		{"orders", "status", "text NOT NULL DEFAULT 'new'", ""},
+		{"order_items", "quantity", "bigint NOT NULL DEFAULT 0", ""},
+		{"order_items", "price", "bigint NOT NULL DEFAULT 0", ""},
+		{"order_status_logs", "from_status", "text NOT NULL DEFAULT ''", ""},
+		{"order_status_logs", "to_status", "text NOT NULL DEFAULT ''", ""},
+		{"order_status_logs", "admin_id", "bigint NOT NULL DEFAULT 0", ""},
+		{"uploads", "ext", "text NOT NULL DEFAULT ''", ""},
+		{"uploads", "mime_type", "text NOT NULL DEFAULT ''", ""},
+		{"fresh_todays", "date", "text NOT NULL DEFAULT ''", ""},
+		{"fresh_todays", "items", "text NOT NULL DEFAULT ''", ""},
+	}
+	for _, c := range columns {
+		if !tableExists(db, c.table) || columnExists(db, c.table, c.column) {
+			continue
+		}
+		if err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", c.table, c.column, c.ddl)).Error; err != nil {
+			log.Printf("добавление %s.%s: %v", c.table, c.column, err)
+			continue
+		}
+		log.Printf("добавлена недостающая колонка %s.%s (%s)", c.table, c.column, c.ddl)
+		if c.copyFrom != "" && columnExists(db, c.table, c.copyFrom) {
+			res := db.Exec(fmt.Sprintf("UPDATE %s SET %s = %s", c.table, c.column, c.copyFrom))
+			if res.Error != nil {
+				log.Printf("перенос %s.%s ← %s: %v", c.table, c.column, c.copyFrom, res.Error)
+			} else {
+				log.Printf("перенос %s.%s ← %s: строк — %d", c.table, c.column, c.copyFrom, res.RowsAffected)
+			}
+		}
+	}
+}
+
+func tableExists(db *gorm.DB, table string) bool {
+	var reg *string
+	if err := db.Raw("SELECT to_regclass(?)::text", table).Scan(&reg).Error; err != nil {
+		return false
+	}
+	return reg != nil
+}
+
+func columnExists(db *gorm.DB, table, column string) bool {
+	var name string
+	err := db.Raw(
+		`SELECT column_name FROM information_schema.columns
+		 WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`,
+		table, column,
+	).Scan(&name).Error
+	return err == nil && name != ""
+}
+
+// logSchema печатает фактические колонки таблиц — без этого причину отказа
+// миграции видно только по одной колонке за перезапуск.
+func logSchema(db *gorm.DB) {
+	type row struct {
+		TableName string
+		Columns   string
+	}
+	var rows []row
+	err := db.Raw(
+		`SELECT table_name, string_agg(column_name || ':' || data_type ||
+		        CASE WHEN is_nullable = 'YES' THEN '?' ELSE '' END, ', ' ORDER BY ordinal_position) AS columns
+		 FROM information_schema.columns
+		 WHERE table_schema = current_schema()
+		 GROUP BY table_name ORDER BY table_name`,
+	).Scan(&rows).Error
+	if err != nil {
+		log.Printf("схема: %v", err)
+		return
+	}
+	for _, r := range rows {
+		log.Printf("схема %s: %s", r.TableName, r.Columns)
 	}
 }
 
