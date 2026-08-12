@@ -9,12 +9,19 @@ export type Theme = 'light' | 'dark';
 const KEY = 'cf-theme';
 
 /**
- * Цвета шапки и фона, которые приложение отдаёт Telegram. Обязаны совпадать
- * с токеном --c-bg в styles/index.css: иначе шапка клиента и фон Mini App
- * расходятся на пару тонов и по краю экрана видна чужая полоса.
- * Раньше здесь лежали цвета от прошлой палитры — расхождение и было.
+ * Системная шапка Telegram — near-black в обеих темах: тот же цвет, что
+ * у шапки приложения и плашки логотипа (--badge-ink). Верх экрана читается
+ * одной тёмной полосой; при светлой системной шапке она разрывалась
+ * на светлую полосу клиента и тёмную марку под ней.
  */
-const TG_COLORS: Record<Theme, string> = { light: '#EDECEA', dark: '#131311' };
+const TG_HEADER = '#1A1A18';
+
+/**
+ * Фон под контентом отдаём отдельно и по теме: он обязан совпадать
+ * с токеном --c-bg, иначе при оттягивании страницы из-под неё выглядывает
+ * чужой цвет.
+ */
+const TG_BG: Record<Theme, string> = { light: '#EDECEA', dark: '#131311' };
 
 export function currentTheme(): Theme {
   const saved = localStorage.getItem(KEY);
@@ -25,8 +32,8 @@ export function currentTheme(): Theme {
 
 export function applyTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
-  tg()?.setHeaderColor?.(TG_COLORS[theme]);
-  tg()?.setBackgroundColor?.(TG_COLORS[theme]);
+  tg()?.setHeaderColor?.(TG_HEADER);
+  tg()?.setBackgroundColor?.(TG_BG[theme]);
 }
 
 /** Переключение с плавным перетеканием цветов (класс theme-anim на время перехода). */

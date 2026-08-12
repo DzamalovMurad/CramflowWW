@@ -90,7 +90,7 @@ export default function Profile() {
   const isNewcomer = loaded && !hasProfile && (orders?.length ?? 0) === 0;
 
   return (
-    <div className="pb-28">
+    <div className="pb-32">
       <Header title={c.title} />
 
       <div className="space-y-6 p-4">

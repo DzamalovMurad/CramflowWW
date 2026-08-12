@@ -14,7 +14,7 @@ interface SearchProps {
     Не sticky — при скролле сверху остаются только фильтры (как у Bunch). */
 export function MenuHeader() {
   return (
-    <header className="border-b border-line bg-page px-4 pb-3 pt-2.5">
+    <header className="app-header px-4 pb-3 pt-2.5">
       <div className="relative flex h-10 items-center justify-center">
         <Link
           to="/"
@@ -34,7 +34,7 @@ export function MenuHeader() {
             haptic('light');
             toggleTheme();
           }}
-          className="theme-toggle absolute right-0 flex h-11 w-11 items-center justify-center rounded-full border border-line bg-tile/60 text-ink active:scale-90"
+          className="theme-toggle header-icon absolute right-0 flex h-11 w-11 items-center justify-center rounded-full border active:scale-90"
         >
           <span className="icon-sun"><IconSun size={18} /></span>
           <span className="icon-moon"><IconMoon size={18} /></span>
@@ -64,13 +64,13 @@ export default function Header({
   const navigate = useNavigate();
 
   return (
-    <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-line bg-page px-4">
+    <header className="app-header sticky top-0 z-20 flex h-14 items-center gap-2 px-4">
       <div className="flex flex-shrink-0 items-center gap-1">
         {showBack && (
           <button
             onClick={() => navigate(-1)}
             aria-label="назад"
-            className="-ml-2 flex h-11 w-11 items-center justify-center rounded-full active:bg-tile"
+            className="header-icon -ml-2 flex h-11 w-11 items-center justify-center rounded-full !border-transparent !bg-transparent active:opacity-60"
           >
             <IconArrowLeft />
           </button>
@@ -87,12 +87,12 @@ export default function Header({
           </span>
         </Link>
         {title && !search && (
-          <span className="ml-2 border-l border-line pl-3 text-sm lowercase text-muted">{title}</span>
+          <span className="header-title ml-2 border-l pl-3 text-sm lowercase">{title}</span>
         )}
       </div>
 
       {search && (
-        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-line bg-tile/60 px-3 py-2 backdrop-blur">
+        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-full bg-surface px-3 py-2">
           <span className="flex-shrink-0 text-muted">
             <IconSearch size={17} />
           </span>
@@ -125,7 +125,7 @@ export default function Header({
           haptic('light');
           toggleTheme();
         }}
-        className="theme-toggle ml-auto flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-line bg-tile/60 text-ink backdrop-blur active:scale-90"
+        className="theme-toggle header-icon ml-auto flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border active:scale-90"
       >
         <span className="icon-sun"><IconSun size={18} /></span>
         <span className="icon-moon"><IconMoon size={18} /></span>

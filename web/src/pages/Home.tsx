@@ -130,7 +130,7 @@ export default function Home() {
     grid && grid.length > 0 ? Math.min(...grid.map((p) => p.price)) : 0;
 
   return (
-    <div className="pb-24">
+    <div className="pb-32">
       <MenuHeader />
 
       {/* АКТИВНЫЙ ЗАКАЗ — статус на виду, без вопросов менеджеру */}

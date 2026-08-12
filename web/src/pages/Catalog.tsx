@@ -73,7 +73,7 @@ export default function Catalog() {
   const minPrice = visible && visible.length > 0 ? Math.min(...visible.map((p) => p.price)) : 0;
 
   return (
-    <div className="pb-24">
+    <div className="pb-32">
       <Header search={{ value: query, onChange: setQuery }} />
       <div className="sticky top-14 z-10 border-b border-line bg-page">
         <CategoryChips selected={category} onSelect={(c) => updateParams('category', c)} />

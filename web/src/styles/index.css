@@ -540,9 +540,6 @@ body {
   width: 100%;
   max-width: 28rem;
   z-index: 40;
-  background: color-mix(in srgb, var(--c-surface) 88%, transparent);
-  backdrop-filter: blur(16px);
-  border-top: 1px solid var(--c-border);
   padding-bottom: env(safe-area-inset-bottom);
 }
 
@@ -888,4 +885,57 @@ body {
 }
 @media (prefers-reduced-motion: reduce) {
   .btn-added { animation: none; }
+}
+
+/* ─── Шапка приложения ───────────────────────────────────────
+   Near-black и вне темы — тем же цветом, что системная шапка Telegram
+   (см. theme.ts) и плашка логотипа. Верх экрана обязан читаться одной
+   полосой: при светлой шапке между полосой клиента и тёмной маркой
+   возникал разрыв. */
+.app-header {
+  background: var(--badge-ink);
+  color: var(--badge-on-ink);
+  border-bottom: 1px solid rgba(237, 236, 234, 0.1);
+}
+/* Иконки и служебные подписи на тёмной шапке: цвет текста темы здесь
+   не работает — в светлой теме он near-black и сливается с фоном. */
+.app-header .header-icon {
+  color: var(--badge-on-ink);
+  border-color: rgba(237, 236, 234, 0.18);
+  background: rgba(237, 236, 234, 0.08);
+}
+.app-header .header-title {
+  color: rgba(237, 236, 234, 0.6);
+  border-color: rgba(237, 236, 234, 0.18);
+}
+/* На тёмной шапке плашка марки сливается с фоном — остаются буквы.
+   Это и есть цельный верх: логотип не «наклеен» на полосу, он её часть. */
+.app-header .brand {
+  background: transparent;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* ─── Нижнее меню ────────────────────────────────────────────
+   Плотный фон вместо полупрозрачного: сквозь блюр просвечивал контент
+   и бейджи нижнего ряда выглядели обрезанными. */
+.tabbar-solid {
+  background: var(--c-surface);
+  border-top: 1px solid var(--c-border);
+  box-shadow: 0 -8px 24px -16px rgba(26, 26, 24, 0.35);
+}
+:root[data-theme='dark'] .tabbar-solid {
+  box-shadow: 0 -8px 24px -12px rgba(0, 0, 0, 0.8);
+}
+/* Активная вкладка — чартрезовая плашка под иконкой: тонкая чёрточка
+   на фоне остального интерфейса читалась как случайная деталь. */
+.tab-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--c-accent);
+  color: var(--c-on-accent);
 }
