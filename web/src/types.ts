@@ -8,6 +8,10 @@ export interface ProductCard {
   is_hit?: boolean;
   /** null = учёт остатка не ведётся, 0 = закончилось, N = осталось N. */
   stock: number | null;
+  /** Свежая поставка. Срок считает сервер по времени магазина. */
+  is_fresh?: boolean;
+  /** Букет дня — ровно один товар на календарный день. */
+  is_daily_pick?: boolean;
 }
 
 export interface ProductVariant {
@@ -31,6 +35,8 @@ export interface Product {
   category: string;
   is_hit?: boolean;
   stock: number | null;
+  is_fresh?: boolean;
+  is_daily_pick?: boolean;
   variants: ProductVariant[];
   images: ProductImage[];
 }

@@ -7,7 +7,9 @@ import { fetchProduct } from '../api';
 import { useCart } from '../cart';
 import { haptic, tg } from '../telegram';
 import { content, categoryLabels } from '../content';
-import { discountPercent, formatPrice, inStock, isLowStock, type Product } from '../types';
+import { formatPrice, inStock, type Product } from '../types';
+import Badge from '../components/Badge';
+import { topBadges } from '../badges';
 
 /** Карточка товара: галерея, варианты-чипы, количество, нижняя кнопка с суммой. */
 export default function ProductPage() {
@@ -70,9 +72,8 @@ export default function ProductPage() {
   const variant = product.variants.find((v) => v.id === variantId) ?? product.variants[0];
   const total = (variant?.price ?? 0) * qty;
   const totalOld = variant?.old_price ? variant.old_price * qty : 0;
-  const off = discountPercent(variant?.price ?? 0, variant?.old_price);
   const available = inStock(product) && Boolean(variant);
-  const lowStock = isLowStock(product);
+  const badges = topBadges({ ...product, price: variant?.price ?? 0, old_price: variant?.old_price }, 2);
   // Больше остатка положить в корзину нельзя — иначе заказ отклонит сервер.
   const maxQty = typeof product.stock === 'number' && product.stock > 0 ? product.stock : 99;
 
@@ -101,13 +102,10 @@ export default function ProductPage() {
       <div className="p-5">
         <div className="flex flex-wrap items-center gap-1.5">
           <p className="label !text-[11px]">{categoryLabels[product.category] ?? product.category}</p>
-          {product.is_hit && <span className="badge badge-hit">хит</span>}
-          {off > 0 && <span className="badge badge-sale">−{off}%</span>}
-          {lowStock && (
-            <span className="badge badge-stock">
-              {content.catalog.lastLeft} {product.stock}
-            </span>
-          )}
+          {/* Здесь бейджей допустимо два: строка под фото, цветы не перекрываются */}
+          {badges.map((b) => (
+            <Badge key={b.variant} {...b} />
+          ))}
         </div>
         <h1 className="title mt-2">{product.name}</h1>
 

@@ -471,6 +471,14 @@ func (b *Bot) handleCatalogCallback(ctx context.Context, log *slog.Logger, cb *t
 		if p.IsHidden {
 			visLabel = "👁 Показать"
 		}
+		freshLabel := "✨ Свежее: выкл"
+		if p.Fresh(b.cfg.Now()) {
+			freshLabel = "✨ Свежее: вкл"
+		}
+		pickLabel := "🏆 Букет дня"
+		if p.DailyPick(b.cfg.Today()) {
+			pickLabel = "🏆 Букет дня: сегодня"
+		}
 		kb := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("Название", fmt.Sprintf("editf:%d:name", id)),
@@ -485,6 +493,10 @@ func (b *Bot) handleCatalogCallback(ctx context.Context, log *slog.Logger, cb *t
 				tgbotapi.NewInlineKeyboardButtonData(hitLabel, fmt.Sprintf("editf:%d:hit", id)),
 				tgbotapi.NewInlineKeyboardButtonData("🏷 Скидка", fmt.Sprintf("editf:%d:disc", id)),
 				tgbotapi.NewInlineKeyboardButtonData("📦 Остаток", fmt.Sprintf("editf:%d:stock", id)),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(freshLabel, fmt.Sprintf("editf:%d:fresh", id)),
+				tgbotapi.NewInlineKeyboardButtonData(pickLabel, fmt.Sprintf("editf:%d:pick", id)),
 			),
 			// Скрыть/показать прямо отсюда: раньше ради этого приходилось
 			// выходить в /hide и заново искать товар в списке.
@@ -610,6 +622,10 @@ func (b *Bot) startEditField(ctx context.Context, log *slog.Logger, chatID int64
 	case "disc":
 		b.setWizard(chatID, &wizard{mode: "edit_discount", productID: id})
 		b.send(chatID, "Введите процент скидки (например 10). 0 — убрать скидку.")
+	case "fresh":
+		b.toggleFresh(ctx, log, chatID, id)
+	case "pick":
+		b.toggleDailyPick(ctx, log, chatID, id)
 	case "stock":
 		b.setWizard(chatID, &wizard{mode: "edit_stock", productID: id})
 		b.send(chatID, "Введите остаток в штуках (например 3) или «-», чтобы не вести учёт.\n\n"+
@@ -669,4 +685,59 @@ func capitalize(s string) string {
 		return s
 	}
 	return strings.ToUpper(string(r[0])) + string(r[1:])
+}
+
+// ─── Бейджи витрины ────────────────────────────────────────────────────────
+
+// freshWindow — на сколько букет помечается свежим. Сутки: поставка приходит
+// утром, и к следующему утру бейдж должен погаснуть сам, без напоминаний.
+const freshWindow = 24 * time.Hour
+
+// toggleFresh включает и выключает бейдж «СВЕЖЕЕ».
+func (b *Bot) toggleFresh(ctx context.Context, log *slog.Logger, chatID int64, id uint) {
+	p, err := b.repo.GetProduct(ctx, id)
+	if err != nil {
+		b.adminError(log, chatID, "get product", err)
+		return
+	}
+	if p.Fresh(b.cfg.Now()) {
+		if err := b.repo.SetFreshUntil(ctx, id, nil); err != nil {
+			b.adminError(log, chatID, "clear fresh", err)
+			return
+		}
+		b.sendTemp(chatID, "✨ Бейдж «СВЕЖЕЕ» убран.", 5*time.Second)
+		return
+	}
+	until := b.cfg.Now().Add(freshWindow)
+	if err := b.repo.SetFreshUntil(ctx, id, &until); err != nil {
+		b.adminError(log, chatID, "set fresh", err)
+		return
+	}
+	b.send(chatID, fmt.Sprintf("✨ Бейдж «СВЕЖЕЕ» включён до %s — дальше погаснет сам.",
+		until.Format("02.01 15:04")))
+}
+
+// toggleDailyPick назначает и снимает букет дня. Букет дня один на календарный
+// день магазина: назначение автоматически снимает вчерашний выбор и любой
+// другой букет, назначенный на сегодня.
+func (b *Bot) toggleDailyPick(ctx context.Context, log *slog.Logger, chatID int64, id uint) {
+	p, err := b.repo.GetProduct(ctx, id)
+	if err != nil {
+		b.adminError(log, chatID, "get product", err)
+		return
+	}
+	today := b.cfg.Today()
+	if p.DailyPick(today) {
+		if err := b.repo.ClearDailyPick(ctx, id); err != nil {
+			b.adminError(log, chatID, "clear daily pick", err)
+			return
+		}
+		b.sendTemp(chatID, "🏆 «БУКЕТ ДНЯ» снят.", 5*time.Second)
+		return
+	}
+	if err := b.repo.SetDailyPick(ctx, id, today); err != nil {
+		b.adminError(log, chatID, "set daily pick", err)
+		return
+	}
+	b.send(chatID, fmt.Sprintf("🏆 «%s» — букет дня на %s. Прежний выбор снят.", p.Name, today))
 }

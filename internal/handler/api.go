@@ -137,6 +137,10 @@ type productCard struct {
 	IsHit    bool   `json:"is_hit"`
 	// Stock: null = учёт не ведётся, 0 = закончилось, N = осталось N.
 	Stock *int `json:"stock"`
+	// Признаки бейджей. Сроки и даты считает сервер по времени магазина —
+	// клиент получает готовый ответ «показывать или нет».
+	IsFresh     bool `json:"is_fresh,omitempty"`
+	IsDailyPick bool `json:"is_daily_pick,omitempty"`
 }
 
 func (a *API) listProducts(w http.ResponseWriter, r *http.Request) {
@@ -153,9 +157,13 @@ func (a *API) listProducts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now, today := a.Cfg.Now(), a.Cfg.Today()
 	cards := make([]productCard, 0, len(products))
 	for _, p := range products {
-		card := productCard{ID: p.ID, Name: p.Name, Category: p.Category, IsHit: p.IsHit, Stock: p.Stock}
+		card := productCard{
+			ID: p.ID, Name: p.Name, Category: p.Category, IsHit: p.IsHit, Stock: p.Stock,
+			IsFresh: p.Fresh(now), IsDailyPick: p.DailyPick(today),
+		}
 		if len(p.Variants) > 0 {
 			card.Price = p.Variants[0].Price // варианты отсортированы по цене
 			card.OldPrice = p.Variants[0].OldPrice
@@ -179,6 +187,7 @@ func (a *API) getProduct(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "букет не найден")
 		return
 	}
+	p.StampBadges(a.Cfg.Now(), a.Cfg.Today())
 	writeJSON(w, http.StatusOK, p)
 }
 

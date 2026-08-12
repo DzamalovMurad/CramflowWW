@@ -1,12 +1,13 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ProductCard } from '../types';
-import { discountPercent, formatPrice, inStock, isLowStock } from '../types';
+import { discountPercent, formatPrice, inStock } from '../types';
 import { content } from '../content';
 import { haptic } from '../telegram';
 import { useCart } from '../cart';
-import { IconPlus, IconMinus, IconLeaf } from './icons';
-import { hasSeasonBadge } from '../seasonal';
+import { IconPlus, IconMinus } from './icons';
+import { BadgeStack } from './Badge';
+import { topBadges } from '../badges';
 
 interface Props {
   product: ProductCard;
@@ -21,9 +22,9 @@ interface Props {
  */
 export default function ProductCardView({ product, index, onAdd }: Props) {
   const off = discountPercent(product.price, product.old_price);
-  const lowStock = isLowStock(product);
   const available = inStock(product);
-  const seasonal = hasSeasonBadge(product);
+  // В списке ровно один бейдж — самый важный по правилу из badges.ts.
+  const badges = topBadges(product, 1);
 
   const { items, setQty } = useCart();
   const inCart = items.filter((i) => i.productId === product.id);
@@ -127,22 +128,8 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
           </div>
         </Link>
 
-        {/* Бейджи слева сверху */}
-        <div className="pointer-events-none absolute left-2.5 top-2.5 flex flex-col items-start gap-1.5">
-          {seasonal && (
-            <span className="badge badge-season">
-              <IconLeaf size={11} />
-              {content.seasonal.badge}
-            </span>
-          )}
-          {product.is_hit && <span className="badge badge-hit">хит</span>}
-          {off > 0 && <span className="badge badge-sale">−{off}%</span>}
-          {lowStock && (
-            <span className="badge badge-stock">
-              {content.catalog.lastLeft} {product.stock}
-            </span>
-          )}
-        </div>
+        {/* Бейдж — в левом верхнем углу фото: там на стоках пустой фон, а не бутоны */}
+        <BadgeStack badges={badges} />
 
         {/* «+» ⇄ счётчик. Кнопки 44px: промах здесь стоит лишнего букета в корзине. */}
         {available && (

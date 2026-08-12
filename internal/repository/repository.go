@@ -670,3 +670,39 @@ func (r *Repository) Ping(ctx context.Context) error {
 	}
 	return sqlDB.PingContext(ctx)
 }
+
+// SetDailyPick назначает букет дня на дату date (YYYY-MM-DD).
+// Прежний выбор на эту же дату снимается в той же транзакции: уникальный
+// индекс idx_products_daily_pick иначе просто отклонил бы вставку, и админ
+// получил бы ошибку вместо смены букета.
+func (r *Repository) SetDailyPick(ctx context.Context, productID uint, date string) error {
+	defer r.InvalidateCatalog()
+	return r.Tx(ctx, func(tx *Repository) error {
+		if err := tx.db(ctx).Model(&model.Product{}).
+			Where("daily_pick_on = ? AND id <> ?", date, productID).
+			Update("daily_pick_on", nil).Error; err != nil {
+			return fmt.Errorf("снятие прежнего букета дня: %w", err)
+		}
+		res := tx.db(ctx).Model(&model.Product{}).
+			Where("id = ? AND archived_at IS NULL", productID).
+			Update("daily_pick_on", date)
+		if res.Error != nil {
+			return fmt.Errorf("букет дня: %w", res.Error)
+		}
+		if res.RowsAffected == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
+}
+
+// ClearDailyPick снимает пометку «букет дня» с товара.
+func (r *Repository) ClearDailyPick(ctx context.Context, productID uint) error {
+	return r.UpdateProductFields(ctx, productID, map[string]any{"daily_pick_on": nil})
+}
+
+// SetFreshUntil помечает товар свежей поставкой до указанного момента
+// (nil — снять пометку сразу, не дожидаясь срока).
+func (r *Repository) SetFreshUntil(ctx context.Context, productID uint, until *time.Time) error {
+	return r.UpdateProductFields(ctx, productID, map[string]any{"fresh_until": until})
+}

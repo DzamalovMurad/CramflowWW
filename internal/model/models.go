@@ -121,6 +121,12 @@ type Product struct {
 	// Число — реальный остаток: уменьшается при заказе, возвращается при отмене,
 	// 0 означает «закончилось» и товар нельзя заказать.
 	Stock *int `json:"stock"`
+	// FreshUntil — до какого момента товар помечен как свежая поставка.
+	// Срок, а не флаг: бейдж «СВЕЖЕЕ» гаснет сам, без уборки по расписанию.
+	FreshUntil *time.Time `json:"-"`
+	// DailyPickOn — календарный день магазина (YYYY-MM-DD), когда этот букет
+	// был выбран «букетом дня». Уникальный индекс не даст назначить второй.
+	DailyPickOn *string `json:"-"`
 	// ArchivedAt — товар «удалён» админом (soft delete): скрыт с витрины навсегда,
 	// но остаётся в БД, чтобы прошлые заказы читались (order_items → product_variants).
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
@@ -128,6 +134,29 @@ type Product struct {
 
 	Variants []ProductVariant `json:"variants,omitempty"`
 	Images   []ProductImage   `json:"images,omitempty"`
+
+	// Признаки бейджей для витрины: считаются от времени магазина в хендлере
+	// (StampBadges) и в БД не хранятся — клиенту незачем знать сроки и даты,
+	// ему нужен ответ «показывать или нет».
+	IsFresh     bool `gorm:"-" json:"is_fresh"`
+	IsDailyPick bool `gorm:"-" json:"is_daily_pick"`
+}
+
+// Fresh — товар помечен как свежая поставка и метка ещё не протухла.
+func (p *Product) Fresh(now time.Time) bool {
+	return p.FreshUntil != nil && now.Before(*p.FreshUntil)
+}
+
+// DailyPick — товар назначен букетом дня именно на сегодня.
+// today — календарный день магазина (Config.Today), не дата контейнера.
+func (p *Product) DailyPick(today string) bool {
+	return p.DailyPickOn != nil && *p.DailyPickOn == today
+}
+
+// StampBadges проставляет витринные признаки перед отдачей клиенту.
+func (p *Product) StampBadges(now time.Time, today string) {
+	p.IsFresh = p.Fresh(now)
+	p.IsDailyPick = p.DailyPick(today)
 }
 
 // Available — товар можно показывать на витрине.

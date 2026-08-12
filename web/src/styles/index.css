@@ -396,6 +396,17 @@ body {
 .badge-season {
   color: #f0b173;
 }
+/* Букет дня — редкая пометка, один товар в сутки: инвертируем плашку,
+   чтобы её нельзя было спутать с обычным бейджем. */
+.badge-daily {
+  background: var(--c-accent);
+  color: var(--c-on-accent);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.badge-fresh {
+  color: #ffffff;
+}
 
 /* Сезонная таблетка в ряду быстрых фильтров: геометрия штатной таблетки,
    тон — тёплая охра вместо неона, чтобы акцент был заметен, но не спорил с CTA. */
