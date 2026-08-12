@@ -1,4 +1,4 @@
-import type { Order, Product, ProductCard } from './types';
+import type { DeliveryType, Order, Product, ProductCard } from './types';
 import { initDataHeader } from './telegram';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -68,9 +68,11 @@ export interface OrderPayload {
   items: { variant_id: number; quantity: number }[];
   name: string;
   phone: string;
-  delivery_address: string;
+  delivery_type: DeliveryType;
+  metro_station: string; // при доставке до метро
+  delivery_address: string; // при доставке по адресу
   delivery_date: string;
-  delivery_time: string;
+  delivery_time: string; // может быть пустым: время необязательно
   comment: string;
   card_text: string;
   is_anonymous: boolean;
@@ -79,6 +81,25 @@ export interface OrderPayload {
 
 export function createOrder(payload: OrderPayload): Promise<Order> {
   return request('/api/orders', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+/** История заказов текущего клиента (по initData Telegram). */
+export function fetchMyOrders(): Promise<Order[]> {
+  return request('/api/orders');
+}
+
+// Список станций метро статичен (живёт в коде бэкенда) — держим его в памяти
+// на всё время сессии, чтобы поиск в чекауте работал без сети.
+let stationsCache: Promise<string[]> | null = null;
+
+export function fetchMetroStations(): Promise<string[]> {
+  if (!stationsCache) {
+    stationsCache = request<string[]>('/api/metro-stations');
+    stationsCache.catch(() => {
+      stationsCache = null;
+    });
+  }
+  return stationsCache;
 }
 
 export function checkPromo(code: string): Promise<{ code: string; discount_percent: number }> {

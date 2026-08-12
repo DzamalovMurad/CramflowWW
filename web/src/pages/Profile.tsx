@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import Header from '../components/Header';
-import { fetchMe } from '../api';
-import { content } from '../content';
+import { fetchMe, fetchMyOrders } from '../api';
+import { content, orderStatusLabels } from '../content';
+import { deliveryLine, deliveryTimeLabel, formatPrice, type Order } from '../types';
 
 const c = content.profile;
 
@@ -16,6 +17,7 @@ interface Me {
 /** Профиль: сохранённые имя/телефон и промокод из deep-link. */
 export default function Profile() {
   const [me, setMe] = useState<Me | null>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -23,6 +25,9 @@ export default function Profile() {
       .then(setMe)
       .catch(() => {})
       .finally(() => setLoaded(true));
+    fetchMyOrders()
+      .then(setOrders)
+      .catch(() => {});
   }, []);
 
   const hasData = me && (me.name || me.phone || me.promo_code);
@@ -65,11 +70,55 @@ export default function Profile() {
           </div>
         )}
 
+        {orders.length > 0 && (
+          <div className="mt-6">
+            <p className="label mb-2.5">{c.history}</p>
+            <div className="space-y-3">
+              {orders.map((o) => (
+                <OrderRow key={o.id} order={o} />
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="mt-6 rounded-card bg-surface p-5 shadow-card">
           <p className="label mb-2">{c.about}</p>
           <p className="text-sm leading-relaxed text-muted">{c.aboutText}</p>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Карточка заказа в истории: сумма — только букеты, доставка описана словами. */
+function OrderRow({ order }: { order: Order }) {
+  return (
+    <div className="animate-fade-up rounded-card bg-surface p-5 shadow-card">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[15px] font-bold">№ {order.id}</span>
+        <span className="text-xs lowercase text-muted">{orderStatusLabels[order.status] ?? order.status}</span>
+      </div>
+      <div className="mt-2 space-y-1 text-sm">
+        {order.items.map((item) => (
+          <div key={item.id} className="flex items-baseline justify-between gap-3">
+            <span className="lowercase">
+              {item.product_name} · {item.variant.quantity} шт
+              {item.quantity > 1 && <span className="text-muted"> ×{item.quantity}</span>}
+            </span>
+            <span className="whitespace-nowrap font-mono">{formatPrice(item.price * item.quantity)}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex items-baseline justify-between border-t border-line pt-3">
+        <span className="text-sm lowercase text-muted">{content.confirmation.total}</span>
+        <span className="font-mono text-[15px] font-bold">{formatPrice(order.total_price)}</span>
+      </div>
+      {/* Та же формулировка, что в подтверждении и в боте. */}
+      <p className="mt-2.5 text-[13px] leading-relaxed text-ink">{deliveryLine(order)}</p>
+      <p className="mt-0.5 text-xs lowercase leading-relaxed text-muted">
+        {order.delivery_type !== 'metro' && order.delivery_address && `${order.delivery_address} · `}
+        {order.delivery_date}, {deliveryTimeLabel(order)}
+      </p>
     </div>
   );
 }

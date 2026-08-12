@@ -5,10 +5,12 @@ import { checkPromo, createOrder, fetchMe } from '../api';
 import { useCart } from '../cart';
 import { haptic, tg } from '../telegram';
 import { content } from '../content';
-import { DELIVERY_MODES, formatPrice, type DeliveryMode } from '../types';
+import { DELIVERY_MODES, formatPrice, type DeliveryMode, type DeliveryType } from '../types';
 import { IconCheck } from '../components/icons';
+import MetroPicker from '../components/MetroPicker';
 
 const c = content.checkout;
+const d = content.delivery;
 
 // Поля: плотный фон поверхности, тонкая рамка, неоновая подсветка при фокусе.
 const inputCls =
@@ -26,13 +28,58 @@ function Field({ label, optional, children }: { label: string; optional?: string
   );
 }
 
-/** Оформление заказа: контакты, адрес, дата/время, комментарий, промокод. */
+/** Вариант доставки: крупная кликабельная строка с подписью-условием. */
+function DeliveryOption({
+  active,
+  title,
+  note,
+  onSelect,
+}: {
+  active: boolean;
+  title: string;
+  note: string;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        haptic('light');
+        onSelect();
+      }}
+      className={`flex items-center gap-3 rounded-input border px-4 py-3.5 text-left transition-all duration-200 active:scale-[0.99] ${
+        active ? 'border-accent bg-surface shadow-[0_0_10px_rgba(128,255,0,0.15)]' : 'border-line bg-surface'
+      }`}
+    >
+      <span
+        aria-hidden
+        className={`flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200 ${
+          active ? 'neon-glow border-transparent bg-accent' : 'border-line'
+        }`}
+      >
+        <span className={`text-on-accent transition-transform duration-200 ${active ? 'scale-100' : 'scale-0'}`}>
+          <IconCheck size={12} />
+        </span>
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[15px] lowercase text-ink">{title}</span>
+        <span className="block text-xs lowercase text-muted">{note}</span>
+      </span>
+    </button>
+  );
+}
+
+/** Оформление заказа: контакты, способ доставки, дата/время, комментарий, промокод. */
 export default function Checkout() {
   const { items, total, clear } = useCart();
   const navigate = useNavigate();
 
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  // Способ доставки выбирается обязательно: от него зависит, что спрашиваем дальше —
+  // станцию метро (бесплатно) или адрес (курьер, цену называет менеджер).
+  const [deliveryType, setDeliveryType] = useState<DeliveryType | ''>('');
+  const [metroStation, setMetroStation] = useState('');
   const [address, setAddress] = useState('');
   const [date, setDate] = useState('');
   const [mode, setMode] = useState<DeliveryMode | ''>('');
@@ -87,8 +134,13 @@ export default function Checkout() {
 
   const discounted = promo ? Math.floor((total * (100 - promo.discount_percent)) / 100) : total;
 
-  // «экспресс» / «в течение часа» уходят как есть, «ко времени» — как «к HH:MM».
+  // «в течение часа» уходит как есть, «ко времени» — как «к HH:MM».
+  // Пустая строка — время не выбрано: это допустимо, поле необязательное.
   const deliveryTime = mode === 'ко времени' ? (timeAt ? `к ${timeAt}` : '') : mode;
+
+  // Что обязательно заполнить, зависит от способа доставки.
+  const deliveryReady =
+    deliveryType === 'metro' ? !!metroStation : deliveryType === 'address' ? !!address.trim() : false;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -99,7 +151,10 @@ export default function Checkout() {
         items: items.map((i) => ({ variant_id: i.variantId, quantity: i.qty })),
         name,
         phone,
-        delivery_address: address,
+        delivery_type: deliveryType as DeliveryType,
+        // Лишнее поле не отправляем — сервер его всё равно очистит.
+        metro_station: deliveryType === 'metro' ? metroStation : '',
+        delivery_address: deliveryType === 'address' ? address : '',
         delivery_date: date,
         delivery_time: deliveryTime,
         comment,
@@ -144,15 +199,48 @@ export default function Checkout() {
           />
         </Field>
 
-        <Field label={c.address}>
-          <input
-            className={inputCls}
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            placeholder={c.addressPlaceholder}
-            required
-          />
+        <Field label={d.label}>
+          <div className="grid gap-2">
+            <DeliveryOption
+              active={deliveryType === 'metro'}
+              title={d.metroOption}
+              note={d.metroOptionNote}
+              onSelect={() => setDeliveryType('metro')}
+            />
+            <DeliveryOption
+              active={deliveryType === 'address'}
+              title={d.addressOption}
+              note={d.addressOptionNote}
+              onSelect={() => setDeliveryType('address')}
+            />
+          </div>
         </Field>
+
+        {deliveryType === 'metro' && (
+          <div className="animate-fade-in">
+            <Field label={d.metroStation}>
+              <MetroPicker value={metroStation} onChange={setMetroStation} />
+            </Field>
+          </div>
+        )}
+
+        {deliveryType === 'address' && (
+          <div className="animate-fade-in">
+            <Field label={c.address}>
+              <input
+                className={inputCls}
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder={c.addressPlaceholder}
+                required
+              />
+              {/* Курьера считает не приложение, а менеджер: предупреждаем до оплаты. */}
+              <p className="mt-2 rounded-input border border-line bg-tile/60 px-3.5 py-3 text-xs leading-relaxed text-muted">
+                {d.addressNote}
+              </p>
+            </Field>
+          </div>
+        )}
 
         <Field label={c.date}>
           <input
@@ -165,7 +253,9 @@ export default function Checkout() {
           />
         </Field>
 
-        <Field label={c.time}>
+        {/* Время — пожелание клиента: до метро курьер подстроится,
+            по адресу время всё равно согласует менеджер. */}
+        <Field label={c.time} optional={c.timeOptional}>
           <div className="grid grid-cols-2 gap-2">
             {DELIVERY_MODES.map((m) => (
               <button
@@ -173,7 +263,7 @@ export default function Checkout() {
                 key={m}
                 onClick={() => {
                   haptic('light');
-                  setMode(m);
+                  setMode((prev) => (prev === m ? '' : m)); // повторный тап снимает выбор
                 }}
                 className={`rounded-input border py-3.5 font-mono text-[12px] font-bold uppercase tracking-wide transition-all duration-200 active:scale-[0.97] ${
                   mode === m
@@ -198,7 +288,9 @@ export default function Checkout() {
               />
             </div>
           )}
-          <p className="mt-1.5 text-xs lowercase text-muted">{c.timeNote}</p>
+          <p className="mt-1.5 text-xs lowercase text-muted">
+            {deliveryType === 'address' ? d.timeManaged : c.timeNote}
+          </p>
         </Field>
 
         <Field label={c.comment} optional={c.commentOptional}>
@@ -315,13 +407,20 @@ export default function Checkout() {
             <span className="label">{c.total}</span>
             <span className="text-[28px] font-extrabold tracking-tight">{formatPrice(discounted)}</span>
           </div>
+          {/* В сумме только букеты. Доставка в неё не входит ни в каком виде:
+              до метро она бесплатна, курьера клиент оплачивает отдельно. */}
+          {deliveryType && (
+            <p className="mt-2 text-xs lowercase leading-relaxed text-muted">
+              {deliveryType === 'metro' ? d.totalNoteMetro : d.totalNoteAddress}
+            </p>
+          )}
         </div>
 
         {error && <p className="text-center text-sm lowercase text-red-500">{error}</p>}
 
         <button
           type="submit"
-          disabled={submitting || !deliveryTime}
+          disabled={submitting || !deliveryReady}
           className="btn-accent btn-accent-strong w-full rounded-button py-4 text-[15px] font-bold lowercase text-on-accent disabled:opacity-50"
         >
           {submitting ? c.submitting : c.submit}

@@ -1,3 +1,5 @@
+import { content } from './content';
+
 export interface ProductCard {
   id: number;
   name: string;
@@ -49,9 +51,21 @@ export interface OrderItem {
   variant: ProductVariant;
 }
 
+/**
+ * Способ доставки. Магазина и самовывоза нет:
+ *   metro   — курьер отдаёт букет на станции, бесплатно (входит в цену букета);
+ *   address — курьер по адресу, стоимость называет менеджер после заказа.
+ * Стоимость доставки в приложении не существует: она не считается,
+ * не хранится и никогда не попадает в сумму заказа.
+ */
+export const DELIVERY_TYPES = ['metro', 'address'] as const;
+export type DeliveryType = (typeof DELIVERY_TYPES)[number];
+
 export interface Order {
   id: number;
-  total_price: number;
+  total_price: number; // только букеты
+  delivery_type: DeliveryType;
+  metro_station: string;
   delivery_address: string;
   delivery_date: string;
   delivery_time: string;
@@ -59,6 +73,23 @@ export interface Order {
   status: string;
   items: OrderItem[];
   promo_code?: { code: string; discount_percent: number };
+}
+
+/**
+ * Строка о доставке — одна на все экраны: подтверждение, история, уведомления.
+ * Формулировки совпадают с админ-ботом (model.Order.DeliveryText).
+ */
+export function deliveryLine(o: Pick<Order, 'delivery_type' | 'metro_station'>): string {
+  // Не-metro (включая заказы до появления выбора) описываем как курьерский:
+  // лучше лишний раз сказать «менеджер свяжется», чем обещать бесплатное метро.
+  if (o.delivery_type !== 'metro') return content.delivery.addressLine;
+  return content.delivery.metroLine.replace('{station}', o.metro_station);
+}
+
+/** Время доставки для показа: пусто = клиент его не выбирал. */
+export function deliveryTimeLabel(o: Pick<Order, 'delivery_type' | 'delivery_time'>): string {
+  if (o.delivery_time) return o.delivery_time;
+  return o.delivery_type === 'metro' ? content.delivery.timeNotSet : content.delivery.timeManaged;
 }
 
 export interface CartItem {

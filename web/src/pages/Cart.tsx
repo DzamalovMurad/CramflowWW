@@ -78,6 +78,15 @@ export default function Cart() {
         ))}
       </div>
 
+      {/* Бесплатная доставка до метро — аргумент в пользу заказа,
+          поэтому показываем его до оформления, а не как сюрприз в чекауте. */}
+      <div className="mx-4 mt-4 rounded-card border border-accent/40 bg-surface px-4 py-3.5">
+        <p className="text-[14px] font-bold text-ink">{content.delivery.cartFree}</p>
+        <p className="mt-0.5 text-xs lowercase leading-relaxed text-muted">
+          {content.delivery.cartFreeHint}
+        </p>
+      </div>
+
       <div className="pb-safe fixed bottom-0 left-1/2 z-20 w-full max-w-md -translate-x-1/2 border-t border-line bg-page/95 px-4 pt-3 backdrop-blur">
         <div className="mb-3 flex items-baseline justify-between">
           <span className="text-sm lowercase text-muted">{content.cart.total}</span>

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -239,6 +240,8 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 			b.send(msg.Chat.ID, "Команды администратора:\n"+
 				"/orders — заказы по статусам\n"+
 				"/preorders — 📅 предзаказы (доставка позже сегодня)\n"+
+				"/stats — 📊 сводка, в том числе метро vs адрес\n"+
+				"/export — 📄 выгрузка заказов в CSV\n"+
 				"/clients <имя или телефон> — база клиентов\n"+
 				"/add — добавить товар\n"+
 				"/edit — изменить товар\n"+
@@ -267,6 +270,10 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 			b.sendStatusFilter(msg.Chat.ID)
 		case "preorders":
 			b.sendPreorders(msg.Chat.ID)
+		case "stats":
+			b.sendStats(msg.Chat.ID)
+		case "export":
+			b.sendOrdersCSV(msg.Chat.ID)
 		case "clients":
 			b.sendClientSearch(msg.Chat.ID, msg.CommandArguments())
 		case "done":
@@ -849,6 +856,16 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 			}
 		}
 
+	case "dok": // dok:<id> — доставка по адресу согласована с клиентом
+		id := argAt(1)
+		updated, err := b.svc.AgreeDelivery(id, cb.From.ID)
+		if err != nil {
+			b.sendTemp(chatID, "Не получилось: "+err.Error(), 6*time.Second)
+			return
+		}
+		log.Printf("доставка заказа #%d согласована админом %d", id, cb.From.ID)
+		b.editOrderCard(chatID, cb.Message.MessageID, updated)
+
 	case "cl": // cl:<userID> — карточка клиента со статистикой
 		b.sendClientDetails(chatID, argAt(1))
 
@@ -866,6 +883,9 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 
 	case "clean": // очистить историю диалога
 		b.cleanChat(chatID)
+
+	case "csv": // выгрузка заказов файлом (из /stats)
+		b.sendOrdersCSV(chatID)
 
 	case "ophoto": // фото готового букета → клиенту
 		id := argAt(1)
@@ -995,8 +1015,8 @@ func (b *Bot) renderOrderPage(chatID int64, msgID int, status string, page int) 
 		if isPreorder(&o) {
 			pre = "📅 "
 		}
-		fmt.Fprintf(&sb, "%s#%d · %s, %s · %s · %d₽\n",
-			pre, o.ID, o.DeliveryDate, o.DeliveryTime, orDash(o.User.Name), o.TotalPrice)
+		fmt.Fprintf(&sb, "%s%s#%d · %s, %s · %s · %d₽\n",
+			deliveryMark(&o), pre, o.ID, o.DeliveryDate, deliveryTimeLabel(&o), orDash(o.User.Name), o.TotalPrice)
 		btnRow = append(btnRow, tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("#%d", o.ID), fmt.Sprintf("o:%d", o.ID)))
 		if len(btnRow) == 3 {
 			rows = append(rows, btnRow)
@@ -1041,8 +1061,9 @@ func (b *Bot) sendPreorders(chatID int64) {
 	var rows [][]tgbotapi.InlineKeyboardButton
 	var btnRow []tgbotapi.InlineKeyboardButton
 	for _, o := range orders {
-		fmt.Fprintf(&sb, "#%d · %s, %s · %s · %d₽ · %s\n",
-			o.ID, o.DeliveryDate, o.DeliveryTime, orDash(o.User.Name), o.TotalPrice, model.StatusLabels[o.Status])
+		fmt.Fprintf(&sb, "%s#%d · %s, %s · %s · %d₽ · %s\n",
+			deliveryMark(&o), o.ID, o.DeliveryDate, deliveryTimeLabel(&o),
+			orDash(o.User.Name), o.TotalPrice, model.StatusLabels[o.Status])
 		btnRow = append(btnRow, tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("#%d", o.ID), fmt.Sprintf("o:%d", o.ID)))
 		if len(btnRow) == 3 {
 			rows = append(rows, btnRow)
@@ -1059,9 +1080,160 @@ func (b *Bot) sendPreorders(chatID int64) {
 	b.sendKb(chatID, sb.String(), tgbotapi.NewInlineKeyboardMarkup(rows...))
 }
 
-// adminOrderKeyboard — кнопки карточки: следующий шаг конвейера, фото, отмена.
+// --- Админ-CRM: сводка и выгрузка ---
+
+// sendStats — /stats: заказы по статусам и разбивка по способу доставки.
+// Пропорция метро/адрес показывает, когда пора автоматизировать расчёт курьера.
+func (b *Bot) sendStats(chatID int64) {
+	counts, err := b.repo.CountOrdersByStatus()
+	if err != nil {
+		b.send(chatID, "Ошибка: "+err.Error())
+		return
+	}
+	all, err := b.repo.CountOrdersByDeliveryType("")
+	if err != nil {
+		b.send(chatID, "Ошибка: "+err.Error())
+		return
+	}
+	month, err := b.repo.CountOrdersByDeliveryType(time.Now().AddDate(0, 0, -30).Format("2006-01-02"))
+	if err != nil {
+		b.send(chatID, "Ошибка: "+err.Error())
+		return
+	}
+
+	var sb strings.Builder
+	var total int64
+	for _, n := range counts {
+		total += n
+	}
+	fmt.Fprintf(&sb, "📊 Заказов всего: %d\n\n", total)
+	for _, st := range model.StatusOrder {
+		if counts[st] > 0 {
+			fmt.Fprintf(&sb, "%s — %d\n", model.StatusLabels[st], counts[st])
+		}
+	}
+
+	sb.WriteString("\nСпособ доставки за всё время:\n")
+	writeDeliveryStats(&sb, all)
+	sb.WriteString("\nЗа последние 30 дней:\n")
+	writeDeliveryStats(&sb, month)
+	if all.Pending > 0 {
+		fmt.Fprintf(&sb, "\n⚠️ Ждут согласования доставки: %d", all.Pending)
+	}
+	b.sendKb(chatID, strings.TrimSpace(sb.String()), tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📄 Выгрузка CSV", "csv"),
+			tgbotapi.NewInlineKeyboardButtonData("✖️ Закрыть", "x"),
+		)))
+}
+
+func writeDeliveryStats(sb *strings.Builder, s *repository.DeliveryStats) {
+	if s.Total() == 0 {
+		sb.WriteString("заказов нет\n")
+		return
+	}
+	fmt.Fprintf(sb, "%s — %d (%d%%)\n", model.DeliveryTypeLabels[model.DeliveryMetro], s.Metro, s.Percent(s.Metro))
+	fmt.Fprintf(sb, "%s — %d (%d%%)\n", model.DeliveryTypeLabels[model.DeliveryAddress], s.Address, s.Percent(s.Address))
+}
+
+// csvExportLimit — сколько последних заказов уходит в выгрузку.
+const csvExportLimit = 2000
+
+// sendOrdersCSV — /export: заказы файлом. Разделитель «;» и BOM — чтобы
+// русский Excel открыл файл сразу, без мастера импорта.
+func (b *Bot) sendOrdersCSV(chatID int64) {
+	orders, err := b.repo.ListOrdersForExport(csvExportLimit)
+	if err != nil {
+		b.send(chatID, "Ошибка: "+err.Error())
+		return
+	}
+	if len(orders) == 0 {
+		b.send(chatID, "Заказов пока нет — выгружать нечего.")
+		return
+	}
+
+	buf := bytes.NewBufferString("\xEF\xBB\xBF")
+	w := csv.NewWriter(buf)
+	w.Comma = ';'
+	// Способ доставки, станция и адрес — отдельными колонками: по ним удобно
+	// фильтровать выгрузку в таблице. Колонки со стоимостью доставки нет —
+	// её в системе не существует, «Сумма» это всегда только букеты.
+	_ = w.Write([]string{
+		"ID", "Создан", "Статус", "Клиент", "Телефон",
+		"Способ доставки", "Станция метро", "Адрес",
+		"Дата доставки", "Время", "Доставка согласована",
+		"Сумма за букеты, ₽", "Промокод", "Букеты", "Открытка", "Комментарий",
+	})
+	for i := range orders {
+		o := &orders[i]
+		promo := ""
+		if o.PromoCode != nil {
+			promo = fmt.Sprintf("%s (−%d%%)", o.PromoCode.Code, o.PromoCode.DiscountPercent)
+		}
+		agreed := ""
+		if !o.IsMetroDelivery() {
+			agreed = "нет"
+			if o.DeliveryAgreedAt != nil {
+				agreed = o.DeliveryAgreedAt.Format("02.01.2006 15:04")
+			}
+		}
+		_ = w.Write([]string{
+			strconv.FormatUint(uint64(o.ID), 10),
+			o.CreatedAt.Format("02.01.2006 15:04"),
+			model.StatusLabels[o.Status],
+			o.User.Name,
+			o.User.Phone,
+			model.DeliveryTypeLabel(o.DeliveryType),
+			o.MetroStation,
+			o.DeliveryAddress,
+			o.DeliveryDate,
+			o.DeliveryTime,
+			agreed,
+			strconv.Itoa(o.TotalPrice),
+			promo,
+			csvItems(o.Items),
+			o.CardText,
+			o.Comment,
+		})
+	}
+	w.Flush()
+	if err := w.Error(); err != nil {
+		b.send(chatID, "Ошибка выгрузки: "+err.Error())
+		return
+	}
+
+	doc := tgbotapi.NewDocument(chatID, tgbotapi.FileBytes{
+		Name:  fmt.Sprintf("flowix-orders-%s.csv", time.Now().Format("2006-01-02")),
+		Bytes: buf.Bytes(),
+	})
+	doc.Caption = fmt.Sprintf("📄 Заказов в выгрузке: %d", len(orders))
+	m, err := b.api.Send(doc)
+	if err != nil {
+		log.Printf("send csv: %v", err)
+		b.send(chatID, "Не удалось отправить файл.")
+		return
+	}
+	b.remember(chatID, m.MessageID)
+}
+
+func csvItems(items []model.OrderItem) string {
+	parts := make([]string, 0, len(items))
+	for _, it := range items {
+		parts = append(parts, fmt.Sprintf("%s %d шт ×%d", it.ProductName, it.Variant.Quantity, it.Quantity))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// adminOrderKeyboard — кнопки карточки: согласование курьера, следующий шаг
+// конвейера, фото, отмена.
 func adminOrderKeyboard(o *model.Order) tgbotapi.InlineKeyboardMarkup {
 	var rows [][]tgbotapi.InlineKeyboardButton
+	// Первой кнопкой — снять ⚠️ с заказа по адресу: менеджер позвонил, назвал
+	// цену курьера и согласовал время.
+	if o.NeedsDeliveryApproval() {
+		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✅ Доставка согласована", fmt.Sprintf("dok:%d", o.ID))))
+	}
 	if next := model.NextStatus(o.Status); next != "" {
 		rows = append(rows, tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("➡️ "+model.StatusLabels[next], fmt.Sprintf("o:%d:next", o.ID))))
@@ -1149,7 +1321,8 @@ func (b *Bot) sendClientDetails(chatID int64, userID uint) {
 		var rows [][]tgbotapi.InlineKeyboardButton
 		var btnRow []tgbotapi.InlineKeyboardButton
 		for _, o := range last {
-			fmt.Fprintf(&sb, "#%d · %s · %d₽ · %s\n", o.ID, o.DeliveryDate, o.TotalPrice, model.StatusLabels[o.Status])
+			fmt.Fprintf(&sb, "%s#%d · %s · %d₽ · %s\n",
+				deliveryMark(&o), o.ID, o.DeliveryDate, o.TotalPrice, model.StatusLabels[o.Status])
 			btnRow = append(btnRow, tgbotapi.NewInlineKeyboardButtonData(fmt.Sprintf("#%d", o.ID), fmt.Sprintf("o:%d", o.ID)))
 			if len(btnRow) == 3 {
 				rows = append(rows, btnRow)
@@ -1184,6 +1357,16 @@ func formatOrder(o *model.Order, isNew bool) string {
 	} else {
 		fmt.Fprintf(&sb, "🌸 %sЗаказ #%d · %s\n", pre, o.ID, model.StatusLabels[o.Status])
 	}
+	// Способ доставки — сразу под номером: это первое, что нужно знать тому,
+	// кто повезёт букет (на станцию или курьером по адресу).
+	sb.WriteString(o.AdminDeliveryLine() + "\n")
+	if o.NeedsDeliveryApproval() {
+		sb.WriteString("⚠️ Согласовать доставку с клиентом\n")
+	} else if !o.IsMetroDelivery() && o.DeliveryAgreedAt != nil {
+		fmt.Fprintf(&sb, "✅ Доставка согласована · %s · админ %d\n",
+			o.DeliveryAgreedAt.Format("02.01 15:04"), o.DeliveryAgreedBy)
+	}
+	sb.WriteString("\n")
 	fmt.Fprintf(&sb, "Клиент: %s\n", o.User.Name)
 	fmt.Fprintf(&sb, "Телефон: %s\n", o.User.Phone)
 	sb.WriteString("Букеты: ")
@@ -1201,12 +1384,13 @@ func formatOrder(o *model.Order, isNew bool) string {
 		}
 	}
 	sb.WriteString("\n")
-	fmt.Fprintf(&sb, "Адрес: %s\n", o.DeliveryAddress)
-	fmt.Fprintf(&sb, "Дата: %s, %s\n", o.DeliveryDate, o.DeliveryTime)
+	fmt.Fprintf(&sb, "Дата: %s, %s\n", o.DeliveryDate, deliveryTimeLabel(o))
 	if o.PromoCode != nil {
 		fmt.Fprintf(&sb, "Промокод: %s (−%d%%)\n", o.PromoCode.Code, o.PromoCode.DiscountPercent)
 	}
-	fmt.Fprintf(&sb, "Итого: %d₽\n", o.TotalPrice)
+	// Сумма — только букеты. Доставка курьером оплачивается клиентом отдельно
+	// и в системе не считается, поэтому в «Итого» её нет и быть не может.
+	fmt.Fprintf(&sb, "Итого за букеты: %d₽\n", o.TotalPrice)
 	if o.CardText != "" {
 		fmt.Fprintf(&sb, "Открытка: %s\n", o.CardText)
 	}
@@ -1220,6 +1404,30 @@ func formatOrder(o *model.Order, isNew bool) string {
 		fmt.Fprintf(&sb, "Причина отмены: %s\n", o.CancelReason)
 	}
 	return strings.TrimSpace(sb.String())
+}
+
+// deliveryMark — компактная метка способа доставки для строк списка.
+// ⚠️ — по адресу и курьера ещё не согласовали с клиентом.
+func deliveryMark(o *model.Order) string {
+	if o.IsMetroDelivery() {
+		return "🚇 "
+	}
+	if o.NeedsDeliveryApproval() {
+		return "📍⚠️ "
+	}
+	return "📍 "
+}
+
+// deliveryTimeLabel — время доставки для админских карточек и списков.
+// Пусто = клиент время не выбирал: по адресу его согласует менеджер.
+func deliveryTimeLabel(o *model.Order) string {
+	if o.DeliveryTime != "" {
+		return o.DeliveryTime
+	}
+	if o.IsMetroDelivery() {
+		return "время не указано"
+	}
+	return "время согласует менеджер"
 }
 
 func formatVariants(vs []model.ProductVariant) string {
@@ -1303,6 +1511,11 @@ func (b *Bot) notifyCustomerStatus(orderID uint, status string) {
 	}
 	if o.User.TelegramID == 0 {
 		return // Нет способа отправить сообщение, если клиент не сохранён.
+	}
+	// В подтверждении заказа повторяем выбранный способ доставки теми же словами,
+	// что клиент видел в приложении — никаких сюрпризов про курьера потом.
+	if status == model.StatusConfirmed {
+		text += "\n" + o.DeliveryText()
 	}
 	// Клиентский чат не админский — remember() его не логирует, /clean не тронет.
 	b.send(o.User.TelegramID, text)

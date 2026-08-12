@@ -2,6 +2,7 @@ package repository
 
 import (
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -78,6 +79,83 @@ func (r *Repository) ChangeOrderStatus(orderID uint, from, to string, adminID in
 			AdminID:    adminID,
 		}).Error
 	})
+}
+
+// MarkDeliveryAgreed — админ согласовал с клиентом стоимость и время курьера.
+// Условие delivery_agreed_at IS NULL защищает от гонки двух админов:
+// второй получит ErrRecordNotFound и не перезапишет автора согласования.
+func (r *Repository) MarkDeliveryAgreed(orderID uint, adminID int64) error {
+	now := time.Now()
+	res := r.DB.Model(&model.Order{}).
+		Where("id = ? AND delivery_type = ? AND delivery_agreed_at IS NULL", orderID, model.DeliveryAddress).
+		Updates(map[string]any{"delivery_agreed_at": &now, "delivery_agreed_by": adminID})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+// DeliveryStats — сколько заказов идёт до метро, а сколько курьером по адресу.
+// По этой пропорции решаем, когда пора автоматизировать расчёт курьера.
+type DeliveryStats struct {
+	Metro   int64
+	Address int64
+	// Pending — заказы по адресу, где доставку ещё не согласовали с клиентом.
+	Pending int64
+}
+
+func (s *DeliveryStats) Total() int64 { return s.Metro + s.Address }
+
+// Percent — доля способа доставки в процентах (0 при отсутствии заказов).
+func (s *DeliveryStats) Percent(n int64) int {
+	if s.Total() == 0 {
+		return 0
+	}
+	return int(n * 100 / s.Total())
+}
+
+// CountOrdersByDeliveryType — разбивка по способу доставки.
+// since пустой — за всё время, иначе только заказы от этой даты (YYYY-MM-DD).
+func (r *Repository) CountOrdersByDeliveryType(since string) (*DeliveryStats, error) {
+	var rows []struct {
+		DeliveryType string
+		N            int64
+	}
+	q := r.DB.Model(&model.Order{}).Select("delivery_type, COUNT(*) AS n").Group("delivery_type")
+	if since != "" {
+		q = q.Where("created_at >= ?", since)
+	}
+	if err := q.Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	var s DeliveryStats
+	for _, row := range rows {
+		if row.DeliveryType == model.DeliveryMetro {
+			s.Metro += row.N
+		} else {
+			s.Address += row.N // старые заказы без типа считаем курьерскими
+		}
+	}
+	if err := r.DB.Model(&model.Order{}).
+		Where("delivery_type = ? AND delivery_agreed_at IS NULL AND status NOT IN ?",
+			model.DeliveryAddress, []string{model.StatusDelivered, model.StatusCancelled}).
+		Count(&s.Pending).Error; err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// ListOrdersForExport — выгрузка заказов в CSV (новые сверху).
+func (r *Repository) ListOrdersForExport(limit int) ([]model.Order, error) {
+	var orders []model.Order
+	err := r.DB.Preload("User").Preload("PromoCode").
+		Preload("Items").Preload("Items.Variant").
+		Order("id DESC").Limit(limit).
+		Find(&orders).Error
+	return orders, err
 }
 
 // --- Админ-CRM: клиенты ---

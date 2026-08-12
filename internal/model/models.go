@@ -16,6 +16,30 @@ const (
 
 var Categories = []string{CategoryStandard, CategoryPremium, CategoryLux, CategoryWow}
 
+// Способы доставки. Магазина и самовывоза нет, вариантов ровно два:
+//
+//	metro   — курьер отдаёт букет на станции метро, бесплатно (входит в цену букета);
+//	address — курьер Яндекса по адресу; стоимость зависит от адреса, её называет
+//	          менеджер вручную. Приложение доставку не считает и не хранит:
+//	          сумма заказа = только букеты.
+const (
+	DeliveryMetro   = "metro"
+	DeliveryAddress = "address"
+)
+
+var DeliveryTypes = []string{DeliveryMetro, DeliveryAddress}
+
+// DeliveryTypeLabels — короткие подписи для админских списков, CSV и статистики.
+var DeliveryTypeLabels = map[string]string{
+	DeliveryMetro:   "🚇 До метро",
+	DeliveryAddress: "📍 По адресу",
+}
+
+// ValidDeliveryType — способ доставки из списка (пустой не принимаем: выбор обязателен).
+func ValidDeliveryType(t string) bool {
+	return t == DeliveryMetro || t == DeliveryAddress
+}
+
 // Статусы заказов: new → confirmed → assembling → photo_sent → delivering → delivered / cancelled.
 const (
 	StatusNew        = "new"
@@ -112,23 +136,79 @@ type User struct {
 }
 
 type Order struct {
-	ID              uint      `gorm:"primaryKey" json:"id"`
-	UserID          uint      `gorm:"not null;index;index:idx_orders_user_status" json:"user_id"`
-	TotalPrice      int       `gorm:"not null" json:"total_price"`
-	DeliveryAddress string    `gorm:"not null" json:"delivery_address"`
-	DeliveryDate    string    `gorm:"not null;index:idx_orders_status_ddate" json:"delivery_date"`
-	DeliveryTime    string    `gorm:"not null" json:"delivery_time"`
-	PromoCodeID     *uint     `json:"promo_code_id,omitempty"`
-	Comment         string    `json:"comment"`
-	CardText        string    `json:"card_text"`     // текст открытки (до 300 символов)
-	IsAnonymous     bool      `json:"is_anonymous"`  // анонимная доставка
-	CancelReason    string    `json:"cancel_reason"` // причина отмены (обязательна при отмене админом)
-	Status          string    `gorm:"not null;default:new;index;index:idx_orders_status_ddate,priority:1;index:idx_orders_user_status,priority:2" json:"status"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID         uint `gorm:"primaryKey" json:"id"`
+	UserID     uint `gorm:"not null;index;index:idx_orders_user_status" json:"user_id"`
+	TotalPrice int  `gorm:"not null" json:"total_price"` // только букеты: стоимости доставки в системе нет
+	// DeliveryType — metro (бесплатно, в цене букета) или address (курьер Яндекса,
+	// цену называет менеджер вручную). См. константы Delivery*.
+	DeliveryType    string `gorm:"not null;default:address;index" json:"delivery_type"`
+	MetroStation    string `json:"metro_station"`                    // заполнено при DeliveryMetro
+	DeliveryAddress string `gorm:"not null" json:"delivery_address"` // заполнен при DeliveryAddress
+	DeliveryDate    string `gorm:"not null;index:idx_orders_status_ddate" json:"delivery_date"`
+	DeliveryTime    string `gorm:"not null" json:"delivery_time"` // пусто = время не выбрано
+	// DeliveryAgreedAt/By — админ созвонился с клиентом и согласовал курьера
+	// (только для DeliveryAddress). Пока пусто — на карточке висит ⚠️.
+	DeliveryAgreedAt *time.Time `json:"delivery_agreed_at,omitempty"`
+	DeliveryAgreedBy int64      `gorm:"not null;default:0" json:"-"` // telegram_id админа
+	PromoCodeID      *uint      `json:"promo_code_id,omitempty"`
+	Comment          string     `json:"comment"`
+	CardText         string     `json:"card_text"`     // текст открытки (до 300 символов)
+	IsAnonymous      bool       `json:"is_anonymous"`  // анонимная доставка
+	CancelReason     string     `json:"cancel_reason"` // причина отмены (обязательна при отмене админом)
+	Status           string     `gorm:"not null;default:new;index;index:idx_orders_status_ddate,priority:1;index:idx_orders_user_status,priority:2" json:"status"`
+	CreatedAt        time.Time  `json:"created_at"`
 
 	User      User        `json:"user"`
 	PromoCode *PromoCode  `json:"promo_code,omitempty"`
 	Items     []OrderItem `gorm:"constraint:OnDelete:CASCADE" json:"items"`
+}
+
+// IsMetroDelivery — доставка до станции метро. Всё остальное (включая заказы,
+// оформленные до появления выбора, — у них тип пустой) считаем курьерским:
+// лучше лишний раз показать «менеджер свяжется», чем пообещать бесплатное метро.
+func (o *Order) IsMetroDelivery() bool { return o.DeliveryType == DeliveryMetro }
+
+// DeliveryText — что видит клиент: подтверждение, история, уведомления бота.
+// Одна формулировка на все каналы, чтобы обещание нигде не расходилось.
+func (o *Order) DeliveryText() string {
+	if o.IsMetroDelivery() {
+		return fmt.Sprintf("Доставка до метро %s — бесплатно", orDashText(o.MetroStation))
+	}
+	return "Доставка по адресу — менеджер свяжется и назовёт стоимость курьера"
+}
+
+// AdminDeliveryLine — первая строка карточки заказа в админ-чате:
+// человеку, который собирает и везёт букет, это нужно раньше всего остального.
+func (o *Order) AdminDeliveryLine() string {
+	if o.IsMetroDelivery() {
+		return "🚇 Метро: " + orDashText(o.MetroStation)
+	}
+	return "📍 По адресу: " + orDashText(o.DeliveryAddress)
+}
+
+// NeedsDeliveryApproval — заказ по адресу, где курьера ещё не согласовали с клиентом.
+// У завершённых заказов маркер не показываем: согласовывать уже нечего.
+func (o *Order) NeedsDeliveryApproval() bool {
+	if o.IsMetroDelivery() || o.DeliveryAgreedAt != nil {
+		return false
+	}
+	return o.Status != StatusDelivered && o.Status != StatusCancelled
+}
+
+// DeliveryTypeLabel — подпись способа доставки с запасом на старые заказы
+// без проставленного типа.
+func DeliveryTypeLabel(t string) string {
+	if t == DeliveryMetro {
+		return DeliveryTypeLabels[DeliveryMetro]
+	}
+	return DeliveryTypeLabels[DeliveryAddress]
+}
+
+func orDashText(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
 }
 
 type OrderItem struct {

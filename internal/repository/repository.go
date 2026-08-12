@@ -371,6 +371,16 @@ func (r *Repository) GetOrder(id uint) (*model.Order, error) {
 	return &o, nil
 }
 
+// ListUserOrders — история заказов клиента для Mini App (новые сверху).
+func (r *Repository) ListUserOrders(userID uint, limit int) ([]model.Order, error) {
+	var orders []model.Order
+	err := r.DB.Preload("PromoCode").Preload("Items").Preload("Items.Variant").
+		Where("user_id = ?", userID).
+		Order("id DESC").Limit(limit).
+		Find(&orders).Error
+	return orders, err
+}
+
 func (r *Repository) ListRecentOrders(limit int) ([]model.Order, error) {
 	var orders []model.Order
 	err := r.DB.Preload("User").Order("id DESC").Limit(limit).Find(&orders).Error

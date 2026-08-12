@@ -1,7 +1,7 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import Header from '../components/Header';
 import { content } from '../content';
-import { formatPrice, type Order } from '../types';
+import { deliveryLine, deliveryTimeLabel, formatPrice, type Order } from '../types';
 import { IconCheck } from '../components/icons';
 
 const c = content.confirmation;
@@ -55,9 +55,15 @@ export default function Confirmation() {
             <span>{c.total}</span>
             <span className="font-mono">{formatPrice(order.total_price)}</span>
           </div>
-          <p className="mt-3 text-xs lowercase leading-relaxed text-muted">
-            {c.delivery}: {order.delivery_address} · {order.delivery_date}, {order.delivery_time}
-          </p>
+          {/* Способ доставки повторяем дословно теми же словами, что в чекауте:
+              клиент должен уйти с экрана, точно зная, платит ли он за курьера. */}
+          <div className="mt-3.5 border-t border-line pt-3.5">
+            <p className="text-[13px] font-medium leading-relaxed text-ink">{deliveryLine(order)}</p>
+            <p className="mt-1 text-xs lowercase leading-relaxed text-muted">
+              {order.delivery_type !== 'metro' && order.delivery_address && `${order.delivery_address} · `}
+              {order.delivery_date}, {deliveryTimeLabel(order)}
+            </p>
+          </div>
         </div>
       )}
 

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dzamalovmurad/cramflowww/internal/model"
 	"github.com/dzamalovmurad/cramflowww/internal/repository"
 	"github.com/dzamalovmurad/cramflowww/internal/service"
 	"github.com/dzamalovmurad/cramflowww/internal/storage"
@@ -36,7 +37,9 @@ func (a *API) Routes() http.Handler {
 	mux.HandleFunc("GET /api/products", a.listProducts)
 	mux.HandleFunc("GET /api/products/{id}", a.getProduct)
 	mux.HandleFunc("POST /api/orders", a.createOrder)
+	mux.HandleFunc("GET /api/orders", a.listMyOrders)
 	mux.HandleFunc("GET /api/orders/{id}", a.getOrder)
+	mux.HandleFunc("GET /api/metro-stations", a.listMetroStations)
 	mux.HandleFunc("GET /api/promo/{code}", a.getPromo)
 	mux.HandleFunc("GET /api/me", a.getMe)
 	mux.HandleFunc("GET /api/fresh-today", a.getFreshToday)
@@ -154,6 +157,27 @@ func (a *API) getOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, order)
+}
+
+// listMyOrders — история заказов клиента (по initData). Без Telegram — пустой список.
+func (a *API) listMyOrders(w http.ResponseWriter, r *http.Request) {
+	tgID := telegramUserID(r.Header.Get("X-Telegram-Init-Data"), a.BotToken)
+	orders := []model.Order{}
+	if tgID != 0 {
+		if user, err := a.Repo.GetUserByTelegramID(tgID); err == nil {
+			if list, err := a.Repo.ListUserOrders(user.ID, 20); err == nil {
+				orders = list
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, orders)
+}
+
+// listMetroStations — статический список станций для выбора в checkout.
+// Список живёт в коде (model.MetroStations), таблицы в БД для него нет.
+func (a *API) listMetroStations(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Cache-Control", "public, max-age=86400") // меняется раз в год
+	writeJSON(w, http.StatusOK, model.MetroStations)
 }
 
 // getPromo — проверка промокода из формы checkout (показать скидку до оформления).
