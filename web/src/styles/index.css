@@ -188,12 +188,34 @@ body {
   transform: skewX(-9deg);
 }
 
-/* Логотип. Самый тяжёлый вес — марка должна читаться как знак, а не как
-   слово в тексте. Точка после слова остаётся акцентной. */
+/* Логотип — фирменная плашка: чартрезовые буквы на near-black слэбе.
+   Чистый чартрез текстом по светлому фону даёт 1.5:1 и не читается, поэтому
+   кислотный цвет несёт плашка, а не буквы: на ней контраст 13.9:1.
+   Цвета зафиксированы вне темы — марка обязана выглядеть одинаково днём
+   и ночью, как печатный знак, а не как элемент интерфейса.
+   Вес 900 (Black): это на ступень тяжелее ultrabold и максимум оси Unbounded. */
 .brand {
+  display: inline-flex;
+  align-items: center;
   font-family: var(--font-display);
   font-weight: 900;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.045em;
+  padding: 5px 11px 6px;
+  border-radius: 4px;
+  background: var(--badge-ink);
+  color: var(--badge-accent);
+  transform: skewX(-9deg);
+}
+/* Содержимое возвращается в вертикаль: иначе марка читается как курсив. */
+.brand-in {
+  display: inline-flex;
+  align-items: baseline;
+  transform: skewX(9deg);
+}
+/* Точка после слова — единственная деталь марки; на плашке она белая,
+   чтобы не сливаться с чартрезовыми буквами. */
+.brand-dot {
+  color: var(--badge-on-ink);
 }
 
 /* Подпись главной кнопки: «оформить заказ», «в корзину», «подтвердить».
@@ -227,6 +249,20 @@ body {
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
+}
+
+/* Цена в карточке товара — на два пункта тяжелее подписи рядом: в сетке
+   именно она решает, а не название. */
+.price-card {
+  font-size: 20px;
+  font-weight: 900;
+}
+/* Итог заказа — самый тяжёлый элемент экрана. */
+.price-total {
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: -0.045em;
+  line-height: 0.95;
 }
 
 /* Цифры в интерфейсе, где важно ровное место под символ (счётчики, суммы). */
@@ -334,11 +370,32 @@ body {
 .btn-accent {
   background: var(--c-accent);
   color: var(--c-on-accent);
-  box-shadow: var(--accent-shadow);
-  transition: transform 0.15s ease;
+  /* Две тени вместо одной: короткая держит кнопку на поверхности, длинная
+     даёт цветной отсвет. Одна размытая читается как дешёвый glow. */
+  box-shadow:
+    0 1px 2px rgba(26, 26, 24, 0.18),
+    0 6px 16px -6px rgba(26, 26, 24, 0.22),
+    var(--accent-shadow);
+  transition: transform 0.15s ease, box-shadow 0.25s ease;
+}
+/* Верхний блик — тонкая светлая кромка: плоская заливка выглядит как плашка,
+   кромка превращает её в предмет. */
+.btn-accent::before {
+  content: '';
+  position: absolute;
+  inset: 1px 1px auto;
+  height: 45%;
+  border-radius: inherit;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.28), transparent);
+  pointer-events: none;
+}
+.btn-accent {
+  position: relative;
+  overflow: hidden;
 }
 .btn-accent:active {
-  transform: scale(0.97);
+  transform: scale(0.98) translateY(1px);
+  box-shadow: 0 1px 2px rgba(26, 26, 24, 0.2);
 }
 .btn-accent:disabled {
   opacity: 0.5;
@@ -517,9 +574,12 @@ body {
   align-items: baseline;
   gap: 7px;
   font-family: var(--font-display);
-  font-size: 34px; /* Unbounded шире прежней гарнитуры — иначе марка упирается в края */
-  font-weight: 800;
-  letter-spacing: -0.04em;
+  font-size: 36px; /* Unbounded шире прежней гарнитуры — иначе марка упирается в края */
+  font-weight: 900;
+  letter-spacing: -0.045em;
+  /* Заставка всегда тёмная, поэтому здесь чартрез работает прямо буквами
+     и плашка не нужна: марка светится сама. */
+  color: var(--badge-accent);
   text-transform: lowercase;
   animation: loader-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both, mark-pulse 1.6s ease-in-out 0.6s infinite;
 }
@@ -531,8 +591,8 @@ body {
   width: 11px;
   height: 11px;
   border-radius: 50%;
-  background: #83f70e;
-  box-shadow: 0 0 18px #83f70e;
+  background: var(--badge-on-ink);
+  box-shadow: 0 0 18px rgba(237, 236, 234, 0.55);
   animation: dot-pulse 1.1s ease-in-out infinite;
 }
 @keyframes dot-pulse {
@@ -724,4 +784,75 @@ body {
   .ribbon-mask {
     overflow-x: auto;
   }
+}
+
+/* ─── Люксовые категории ─────────────────────────────────────
+   «Люкс» и WOW обязаны отличаться до того, как человек прочтёт цену.
+   Отличие тихое: тёмная тонкая рамка вокруг фото и подпись категории
+   чартрезом. Никакого золота и градиентов — статус даёт сдержанность,
+   а не количество украшений. */
+.card-lux .card-photo {
+  /* Рамка внутренняя: внешнюю обрезает overflow-hidden родительской ссылки. */
+  box-shadow: inset 0 0 0 1.5px var(--c-text);
+}
+.card-lux-label {
+  color: var(--c-accent-2);
+}
+
+/* Строка-статус на странице люксового букета: короткая фраза характера
+   вместо ещё одного абзаца описания. */
+.lux-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: -0.01em;
+  color: var(--c-text);
+}
+.lux-line::before {
+  content: '';
+  width: 14px;
+  height: 3px;
+  background: var(--c-accent);
+  transform: skewX(-9deg);
+}
+
+/* Блок о фирменной коробке: не реклама, а обещание — поэтому линия слева
+   и приглушённый текст, без плашки и восклицаний. */
+.box-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-left: 3px solid var(--c-accent);
+  padding: 2px 0 2px 11px;
+}
+
+/* Строка корзины: собственная поверхность с рамкой. Раньше строки лежали
+   прямо на фоне и в тёмной теме сливались с ним — оставался только hairline. */
+.cart-row {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-card);
+  background: var(--c-surface);
+  transition: border-color 0.2s ease;
+}
+
+/* Итоговая панель корзины: плотный блок, а не строка над кнопкой. */
+.cart-total {
+  border-top: 1px solid var(--c-border);
+}
+
+/* Подтверждение добавления: короткий «вдох» кнопки. Не прыжок и не вспышка —
+   жест должен читаться как «принято», а не требовать внимания. */
+.btn-added {
+  animation: btn-added 0.62s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes btn-added {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.025); }
+  100% { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-added { animation: none; }
 }

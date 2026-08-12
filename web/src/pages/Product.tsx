@@ -5,6 +5,7 @@ import Gallery from '../components/Gallery';
 import Stepper from '../components/Stepper';
 import { fetchProduct } from '../api';
 import { useCart } from '../cart';
+import { IconCheck } from '../components/icons';
 import { haptic, tg } from '../telegram';
 import { content, categoryLabels } from '../content';
 import { formatPrice, inStock, type Product } from '../types';
@@ -21,6 +22,10 @@ export default function ProductPage() {
   const [error, setError] = useState('');
   const [variantId, setVariantId] = useState<number | null>(null);
   const [qty, setQty] = useState(1);
+  // Подтверждение добавления: кнопка меняет подпись и «дышит» пол-секунды.
+  // Хук обязан стоять здесь, до ранних возвратов загрузки и «не найдено»,
+  // иначе на втором рендере порядок хуков разъезжается (React #310).
+  const [added, setAdded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,11 +79,20 @@ export default function ProductPage() {
   const totalOld = variant?.old_price ? variant.old_price * qty : 0;
   const available = inStock(product) && Boolean(variant);
   const badges = topBadges({ ...product, price: variant?.price ?? 0, old_price: variant?.old_price }, 2);
+  // Статусная строка — только у люксовых категорий: у стандартного букета
+  // такая фраза звучит как пустое обещание.
+  const luxLine =
+    product.category === 'WOW'
+      ? content.product.wowLine
+      : product.category === 'Люкс'
+        ? content.product.luxLine
+        : '';
+
   // Больше остатка положить в корзину нельзя — иначе заказ отклонит сервер.
   const maxQty = typeof product.stock === 'number' && product.stock > 0 ? product.stock : 99;
 
   const addToCart = () => {
-    if (!variant || !available) return;
+    if (!variant || !available || added) return;
     add(
       {
         variantId: variant.id,
@@ -91,11 +105,14 @@ export default function ProductPage() {
       Math.min(qty, maxQty),
     );
     haptic('success');
-    navigate('/cart');
+    // Короткое подтверждение состоянием кнопки, потом переход: моментальный
+    // прыжок в корзину не даёт понять, что именно произошло.
+    setAdded(true);
+    window.setTimeout(() => navigate('/cart'), 620);
   };
 
   return (
-    <div className="pb-32">
+    <div className="pb-36">
       <Header showBack={!tg()} />
       <Gallery images={product.images} alt={product.name} />
 
@@ -108,6 +125,7 @@ export default function ProductPage() {
           ))}
         </div>
         <h1 className="title mt-2">{product.name}</h1>
+        {luxLine && <p className="lux-line mt-2.5">{luxLine}</p>}
 
         {!available && (
           <div className="mt-4 rounded-input border border-line bg-tile p-4">
@@ -129,9 +147,22 @@ export default function ProductPage() {
           {content.product.availabilityNote}
         </p>
 
+        {/* Фирменная коробка — часть продукта, а не деталь логистики */}
+        <div className="box-note mt-5">
+          <span className="min-w-0">
+            <span className="block text-[13px] font-semibold uppercase tracking-[0.06em]">
+              {content.product.boxTitle}
+            </span>
+            <span className="mt-0.5 block text-xs leading-relaxed text-muted">
+              {content.product.boxNote}
+            </span>
+          </span>
+        </div>
+
         {product.variants.length > 0 && (
           <>
-            <p className="label mb-2.5 mt-7">{content.product.sizeLabel}</p>
+            <div className="mt-7 border-t border-line pt-6" />
+            <p className="label mb-2.5">{content.product.sizeLabel}</p>
             <div className="flex flex-wrap gap-2">
               {product.variants.map((v) => {
                 const active = v.id === variant?.id;
@@ -166,9 +197,14 @@ export default function ProductPage() {
         <button
           onClick={addToCart}
           disabled={!available}
-          className="cta btn-accent flex min-h-[52px] w-full items-center justify-between rounded-button px-5 text-[15px] text-on-accent disabled:opacity-50"
+          className={`cta btn-accent flex min-h-[58px] w-full items-center justify-between rounded-button px-5 text-[15px] text-on-accent disabled:opacity-50 ${
+            added ? 'btn-added' : ''
+          }`}
         >
-          <span>{available ? content.product.addToCart : content.catalog.soldOut}</span>
+          <span className="flex items-center gap-2">
+            {added && <IconCheck size={16} />}
+            {added ? content.product.inCart : available ? content.product.addToCart : content.catalog.soldOut}
+          </span>
           {available && (
             <span className="price flex items-baseline gap-2">
               {totalOld > 0 && (

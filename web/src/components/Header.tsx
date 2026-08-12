@@ -18,10 +18,14 @@ export function MenuHeader() {
       <div className="relative flex h-10 items-center justify-center">
         <Link
           to="/"
-          className="brand flex min-h-[44px] items-center px-2 text-[23px]"
+          className="flex min-h-[44px] items-center px-2"
         >
-          {content.brand}
-          <span className="text-accent-2">.</span>
+          <span className="brand text-[22px]">
+            <span className="brand-in">
+              {content.brand}
+              <span className="brand-dot">.</span>
+            </span>
+          </span>
         </Link>
         <button
           type="button"
@@ -73,10 +77,14 @@ export default function Header({
         )}
         <Link
           to="/"
-          className="brand flex min-h-[44px] items-center text-[18px]"
+          className="flex min-h-[44px] items-center"
         >
-          {content.brand}
-          <span className="text-accent-2">.</span>
+          <span className="brand text-[17px]">
+            <span className="brand-in">
+              {content.brand}
+              <span className="brand-dot">.</span>
+            </span>
+          </span>
         </Link>
         {title && !search && (
           <span className="ml-2 border-l border-line pl-3 text-sm lowercase text-muted">{title}</span>

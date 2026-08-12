@@ -53,11 +53,11 @@ export default function Cart() {
       <Header title={content.cart.title} showBack={!tg()} />
       {notice && <Notice text={notice} />}
 
-      <div className="divide-y divide-line">
+      <div className="space-y-3 px-4 pt-3">
         {items.map((item, i) => (
           <SwipeToDelete key={item.variantId} onDelete={() => remove(item.variantId)}>
             <div
-              className="animate-fade-up flex gap-3.5 px-4 py-4"
+              className="cart-row animate-fade-up flex gap-3.5 p-3.5"
               style={{ animationDelay: `${Math.min(i * 50, 200)}ms` }}
             >
               <Link to={`/product/${item.productId}`} className="flex-shrink-0">
@@ -92,7 +92,7 @@ export default function Cart() {
                 </div>
                 <div className="mt-auto flex items-center justify-between pt-2">
                   <Stepper value={item.qty} onChange={(v) => setQty(item.variantId, v)} />
-                  <span className="price text-[16px]">
+                  <span className="price text-[17px]">
                     {formatPrice(item.price * item.qty)}
                   </span>
                 </div>
@@ -102,14 +102,14 @@ export default function Cart() {
         ))}
       </div>
 
-      <div className="pb-safe fixed bottom-0 left-1/2 z-20 w-full max-w-md -translate-x-1/2 border-t border-line bg-page/95 px-4 pt-3 backdrop-blur">
-        <div className="mb-3 flex items-baseline justify-between">
-          <span className="text-sm lowercase text-muted">{content.cart.total}</span>
-          <span className="price text-[22px]">{formatPrice(total)}</span>
+      <div className="cart-total pb-safe fixed bottom-0 left-1/2 z-20 w-full max-w-md -translate-x-1/2 bg-page/95 px-4 pt-3.5 backdrop-blur">
+        <div className="mb-3.5 flex items-end justify-between">
+          <span className="label mb-1">{content.cart.total}</span>
+          <span className="price price-total">{formatPrice(total)}</span>
         </div>
         <button
           onClick={() => navigate('/checkout')}
-          className="cta btn-accent min-h-[52px] w-full rounded-button text-[15px] text-on-accent"
+          className="cta btn-accent min-h-[58px] w-full rounded-button text-[15px] text-on-accent"
         >
           {content.cart.checkout}
         </button>

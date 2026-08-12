@@ -539,15 +539,13 @@ export default function Checkout() {
         )}
         <div className="mb-2.5 flex items-baseline justify-between">
           <span className="label">{c.total}</span>
-          <span className="price text-[26px]">
-            {formatPrice(discounted)}
-          </span>
+          <span className="price price-total">{formatPrice(discounted)}</span>
         </div>
         <button
           type="button"
           onClick={submit}
           disabled={submitting}
-          className="cta btn-accent btn-accent-strong min-h-[52px] w-full rounded-button text-[15px] lowercase text-on-accent disabled:opacity-50"
+          className="cta btn-accent btn-accent-strong min-h-[58px] w-full rounded-button text-[15px] lowercase text-on-accent disabled:opacity-50"
         >
           {submitting ? c.submitting : error ? c.submitRetry : c.submit}
         </button>

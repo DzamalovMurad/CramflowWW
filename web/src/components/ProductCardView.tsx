@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ProductCard } from '../types';
 import { discountPercent, formatPrice, inStock } from '../types';
-import { content } from '../content';
+import { categoryLabels, content } from '../content';
 import { haptic } from '../telegram';
 import { useCart } from '../cart';
 import { IconPlus, IconMinus } from './icons';
@@ -25,6 +25,8 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
   const available = inStock(product);
   // В списке ровно один бейдж — самый важный по правилу из badges.ts.
   const badges = topBadges(product, 1);
+  // «Люкс» и WOW обязаны отличаться до того, как человек дочитает до цены.
+  const lux = product.category === 'Люкс' || product.category === 'WOW';
 
   const { items, setQty } = useCart();
   const inCart = items.filter((i) => i.productId === product.id);
@@ -91,14 +93,17 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
   };
 
   return (
-    <div className="animate-fade-up" style={{ animationDelay: `${Math.min(index * 40, 280)}ms` }}>
+    <div
+      className={`animate-fade-up ${lux ? 'card-lux' : ''}`}
+      style={{ animationDelay: `${Math.min(index * 40, 280)}ms` }}
+    >
       <div className="relative">
         <Link
           to={`/product/${product.id}`}
           className="group block overflow-hidden rounded-card bg-tile shadow-card transition-transform duration-200 active:scale-[0.98]"
         >
           {/* aspect-[4/5] задан заранее — сетка не дёргается, когда грузятся фото */}
-          <div className="relative aspect-[4/5] w-full overflow-hidden">
+          <div className="card-photo relative aspect-[4/5] w-full overflow-hidden rounded-card">
             {!imgLoaded && <div className="absolute inset-0 animate-pulse bg-tile" />}
             {product.image && (
               <img
@@ -176,12 +181,18 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
       </div>
 
       <Link to={`/product/${product.id}`} className="mt-3.5 block">
-        {available && (
-          <p className="label mb-1 !text-[10px] text-accent-2">{content.catalog.deliveryToday}</p>
+        {lux ? (
+          <p className="label card-lux-label mb-1 !text-[10px]">
+            {categoryLabels[product.category] ?? product.category}
+          </p>
+        ) : (
+          available && (
+            <p className="label mb-1 !text-[10px] text-accent-2">{content.catalog.deliveryToday}</p>
+          )
         )}
         <p className="card-title line-clamp-1 text-[13px] leading-snug">{product.name}</p>
         <div className="mt-1 flex items-baseline gap-2">
-          <span className="price text-[17px]">{formatPrice(product.price)}</span>
+          <span className="price price-card">{formatPrice(product.price)}</span>
           {off > 0 && (
             <span className="nums text-[13px] text-muted line-through">
               {formatPrice(product.old_price!)}
