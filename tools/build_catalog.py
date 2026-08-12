@@ -248,6 +248,23 @@ def has_photo(name):
     key = RENAMED.get(name, name).lower().replace('ё', 'е')
     return 'да' if key in photo_norm else 'нет'
 
+# ---------------------------------------------------------------- упаковка
+# тариф упаковки по числу стеблей: (верхняя граница, цена, подпись, строка на листе «Прайс»)
+PACK = [(11, 90, 'до 11 стеблей', 5),
+        (25, 140, '12–25 стеблей', 6),
+        (51, 190, '26–51 стебель', 7),
+        (10 ** 6, 250, 'свыше 51 стебля', 8)]
+
+def stems(comp):
+    return sum(q for _, q in comp)
+
+def pack_of(comp):
+    n = stems(comp)
+    for cap, price, label, row in PACK:
+        if n <= cap:
+            return price, label, row
+    raise AssertionError
+
 # ---------------------------------------------------------------- цены
 def bump(c):
     """Цена, дающая маржу 55–60%, в формате «…90»."""
@@ -256,40 +273,23 @@ def bump(c):
         newp += 100
     return newp
 
-def fix_price(base, c):
-    m = (base - c) / base
-    if m < 0.50:
-        newp = bump(c)
-        return newp, ('цена поднята с %d ₽: при ориентире маржа %s%% (<50%%), новая маржа %s%%'
-                      % (base, ru(m * 100), ru((newp - c) / newp * 100)))
-    if m > 0.75:
-        return base, ('маржа %s%% (>75%%) — проверить состав: возможно, занижено количество стеблей'
-                      % ru(m * 100))
-    return base, ''
-
 # ---------------------------------------------------------------- сборка строк
-rows = []
-for name, cat, comp, price, desc, season in PROD:
-    c = cost(comp)
-    m = (price - c) / price
-    notes = ['сейчас в боте', 'категория проставлена по ценовой сетке каталога — подтвердить']
-    if m < 0.50:
-        notes.append('маржа %s%% (<50%%), цена оставлена как в проде — рекомендуемая цена %d ₽ (маржа %s%%)'
-                     % (ru(m * 100), bump(c), ru((bump(c) - c) / bump(c) * 100)))
-    elif m > 0.75:
-        notes.append('маржа %s%% (>75%%) — проверить состав' % ru(m * 100))
-    for k, _ in comp:
-        if ING[k][2]:
-            notes.append(ING[k][2])
-    rows.append(dict(name=name, cat=cat, comp=comp_text(comp), comp_f=comp_formula(comp), desc=desc,
-                     price=price, base=price, season=season, photo=has_photo(name),
-                     status='в каталоге бота', note=' · '.join(notes), src='прод',
-                     comp_raw=comp, cost=c))
-
-for name, cat, comp, base, desc, season in NEW + SCHOOL:
-    c = cost(comp)
-    price, note = fix_price(base, c)
-    notes = ['новый']
+def build(name, cat, comp, base, desc, season, src):
+    flowers = cost(comp)
+    pack, pack_label, pack_row = pack_of(comp)
+    c = flowers + pack
+    price, note = base, ''
+    if (base - c) / base < 0.50:
+        price = bump(c)
+        note = ('цена поднята с %d ₽: с упаковкой (%d ₽) маржа была %s%% (<50%%), новая маржа %s%%'
+                % (base, pack, ru((base - c) / base * 100), ru((price - c) / price * 100)))
+    elif (base - c) / base > 0.75:
+        note = 'маржа %s%% (>75%%) — проверить состав' % ru((base - c) / base * 100)
+    notes = ['сейчас в боте' if src == 'прод' else 'новый']
+    if src == 'прод':
+        notes.append('категория проставлена по ценовой сетке каталога — подтвердить')
+        if note:
+            notes.append('цена живая, в боте стоит %d ₽ — обновить через /edit' % base)
     if name in SCHOOL_NAMES:
         notes.append('блок «1 сентября»')
     if name in EXTRA_NOTE:
@@ -299,10 +299,14 @@ for name, cat, comp, base, desc, season in NEW + SCHOOL:
     for k, _ in comp:
         if ING[k][2]:
             notes.append(ING[k][2])
-    rows.append(dict(name=name, cat=cat, comp=comp_text(comp), comp_f=comp_formula(comp), desc=desc,
-                     price=price, base=base, season=season, photo=has_photo(name),
-                     status='новый — завести через /add', note=' · '.join(notes), src='новый',
-                     comp_raw=comp, cost=c))
+    return dict(name=name, cat=cat, comp=comp_text(comp), flowers_f=comp_formula(comp), desc=desc,
+                price=price, base=base, season=season, photo=has_photo(name),
+                status='в каталоге бота' if src == 'прод' else 'новый — завести через /add',
+                note=' · '.join(notes), src=src, comp_raw=comp, cost=c, flowers=flowers,
+                pack=pack, pack_row=pack_row, stems=stems(comp))
+
+rows = [build(n, c, comp, p, d, s, 'прод') for n, c, comp, p, d, s in PROD]
+rows += [build(n, c, comp, p, d, s, 'новый') for n, c, comp, p, d, s in NEW + SCHOOL]
 
 CAT_ORDER = {'Стандарт': 0, 'Премиум': 1, 'Люкс': 2, 'ВАУ': 3}
 rows.sort(key=lambda r: (CAT_ORDER[r['cat']], 0 if r['src'] == 'прод' else 1, r['price']))
@@ -313,60 +317,88 @@ for r in rows:
     else:
         nn += 1; r['id'] = 'NEW-%02d' % nn
 
+# ---------------------------------------------------------------- план выкладки
+W1 = ['Первоклассник','Звонок','Луч','Клён','Рябина','Астра','Инжир','Сидр','Пенал','Глобус','Перемена',
+      'Мелок','Линейка','Циркуль','Азбука','Ранец','Сентябрь','Штрих','Янтарь','Лиса','Бронза',
+      'Густой август','Солнце']
+W2 = ['Пионовидный сад','Французский сад','Гортензия Jumbo','Облако августа','Silva Pink XL',
+      'Белое облако','Нежность Кустовая','Снежный Мел','Сливочный Крем','Очаг 51']
+WAVE_META = {1: ('до 18 августа', 'школьный блок и старт осени — пик спроса 25 августа – 1 сентября'),
+             2: ('19–25 августа', 'свадебный сезон и осенний люкс'),
+             3: ('со 2 сентября', 'круглогодичная база — вне школьного пика')}
+for r in rows:
+    r['wave'] = 1 if r['name'] in W1 else 2 if r['name'] in W2 else 3
+
 # ---------------------------------------------------------------- книга
 wb = Workbook()
 TH = Font(bold=True, color='FFFFFF', size=11)
 TH_FILL = PatternFill('solid', fgColor='3E4A42')
+NOTE_FILL = PatternFill('solid', fgColor='F5F3EE')
 CAT_FILL = {'Стандарт': PatternFill('solid', fgColor='F2F6F0'),
             'Премиум':  PatternFill('solid', fgColor='EAF1F6'),
             'Люкс':     PatternFill('solid', fgColor='F4EFF7'),
             'ВАУ':      PatternFill('solid', fgColor='FBF0E8')}
+WAVE_FILL = {1: PatternFill('solid', fgColor='FBF0E8'),
+             2: PatternFill('solid', fgColor='EAF1F6'),
+             3: PatternFill('solid', fgColor='F2F6F0')}
 THIN = Side(style='thin', color='D9D9D9')
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
 TOP = Alignment(vertical='top')
 TOPWRAP = Alignment(vertical='top', wrap_text=True)
 TOPCTR = Alignment(vertical='top', horizontal='center')
 
-def header(ws, titles, widths, height=32):
-    ws.append(titles)
+HEAD_NOTE = ('Себестоимость = цветы по прайсу оптовой базы «Прайс_07_07» + упаковка. '
+             'Упаковка: до 11 стеблей — 90 ₽, 12–25 — 140 ₽, 26–51 — 190 ₽, свыше 51 — 250 ₽ '
+             '(тариф на листе «Прайс», ячейки G5:G8 — правится там, пересчёт по всему файлу автоматический). '
+             'Доставка в себестоимость НЕ входит: оплачивается клиентом отдельно через Яндекс.Доставку '
+             'и на маржу не влияет.')
+
+def header(ws, titles, widths, row=1, height=32):
     for i, (t, w) in enumerate(zip(titles, widths), 1):
-        cell = ws.cell(row=1, column=i)
+        cell = ws.cell(row=row, column=i, value=t)
         cell.font, cell.fill = TH, TH_FILL
         cell.alignment = Alignment(vertical='center', horizontal='center', wrap_text=True)
         cell.border = BORDER
         ws.column_dimensions[get_column_letter(i)].width = w
-    ws.row_dimensions[1].height = height
+    ws.row_dimensions[row].height = height
 
 # ---- Каталог
 ws = wb.active
 ws.title = 'Каталог'
-header(ws, ['ID','Название','Категория','Состав (вид и кол-во)','Описание','Себестоимость','Цена',
-            'Маржа ₽','Маржа %','Сезон/повод','Фото есть','Статус','Примечание'],
-       [9,20,12,34,44,14,10,10,10,20,9,22,52])
+COLS = ['ID','Название','Категория','Состав (вид и кол-во)','Описание','Упаковка, ₽','Себестоимость',
+        'Цена','Маржа ₽','Маржа %','Сезон/повод','Фото есть','Статус','Примечание']
+ws.merge_cells('A1:N1')
+ws['A1'] = HEAD_NOTE
+ws['A1'].alignment = Alignment(vertical='center', wrap_text=True)
+ws['A1'].font = Font(italic=True, size=10, color='4A4A4A')
+ws['A1'].fill = NOTE_FILL
+ws.row_dimensions[1].height = 46
+header(ws, COLS, [9,20,12,34,44,11,14,10,10,10,20,9,22,52], row=2)
 
-for i, r in enumerate(rows, start=2):
+for i, r in enumerate(rows, start=3):
     ws.cell(i, 1, r['id']).alignment = TOP
     ws.cell(i, 2, r['name']).alignment = TOPWRAP
     ws.cell(i, 2).font = Font(bold=True)
     ws.cell(i, 3, r['cat']).alignment = TOPCTR
     ws.cell(i, 4, r['comp']).alignment = TOPWRAP
     ws.cell(i, 5, r['desc']).alignment = TOPWRAP
-    ws.cell(i, 6, r['comp_f'])
-    ws.cell(i, 7, r['price'])
-    ws.cell(i, 8, '=IF(ISNUMBER($F%d),$G%d-$F%d,"—")' % (i, i, i))
-    ws.cell(i, 9, '=IF(ISNUMBER($F%d),($G%d-$F%d)/$G%d,"—")' % (i, i, i, i))
-    ws.cell(i, 10, r['season']).alignment = TOPWRAP
-    ws.cell(i, 11, r['photo']).alignment = TOPCTR
-    ws.cell(i, 12, r['status']).alignment = TOPWRAP
-    ws.cell(i, 13, r['note']).alignment = TOPWRAP
-    for c in (6, 7, 8):
+    ws.cell(i, 6, '=Прайс!$G$%d' % r['pack_row'])
+    ws.cell(i, 7, r['flowers_f'] + '+$F%d' % i)
+    ws.cell(i, 8, r['price'])
+    ws.cell(i, 9, '=IF(ISNUMBER($G%d),$H%d-$G%d,"—")' % (i, i, i))
+    ws.cell(i, 10, '=IF(ISNUMBER($G%d),($H%d-$G%d)/$H%d,"—")' % (i, i, i, i))
+    ws.cell(i, 11, r['season']).alignment = TOPWRAP
+    ws.cell(i, 12, r['photo']).alignment = TOPCTR
+    ws.cell(i, 13, r['status']).alignment = TOPWRAP
+    ws.cell(i, 14, r['note']).alignment = TOPWRAP
+    for c in (6, 7, 8, 9):
         ws.cell(i, c).number_format = '# ##0 ₽'
         ws.cell(i, c).alignment = TOP
-    ws.cell(i, 9).number_format = '0.0%'
-    ws.cell(i, 9).alignment = TOP
-    if r['cost'] is not None and (r['price'] - r['cost']) / r['price'] < 0.50:
-        ws.cell(i, 9).font = Font(bold=True, color='B3261E')
-    for c in range(1, 14):
+    ws.cell(i, 10).number_format = '0.0%'
+    ws.cell(i, 10).alignment = TOP
+    if (r['price'] - r['cost']) / r['price'] < 0.50:
+        ws.cell(i, 10).font = Font(bold=True, color='B3261E')
+    for c in range(1, 15):
         ws.cell(i, c).border = BORDER
         if ws.cell(i, c).alignment.vertical is None:
             ws.cell(i, c).alignment = TOP
@@ -374,26 +406,33 @@ for i, r in enumerate(rows, start=2):
     ws.cell(i, 3).fill = CAT_FILL[r['cat']]
     lines = max(len(r['note']) / 50.0, len(r['desc']) / 42.0, len(r['comp']) / 32.0,
                 len(r['status']) / 20.0, 1)
-    ws.row_dimensions[i].height = max(45, min(150, 15 * (int(lines) + 1)))
+    ws.row_dimensions[i].height = max(45, min(160, 15 * (int(lines) + 1)))
 
-LAST = len(rows) + 1
-ws.freeze_panes = 'C2'
-ws.auto_filter.ref = 'A1:M%d' % LAST
+LAST = len(rows) + 2
+ws.freeze_panes = 'C3'
+ws.auto_filter.ref = 'A2:N%d' % LAST
 
 # ---- 1 сентября
 ws2 = wb.create_sheet('1 сентября')
+ws2.merge_cells('A1:K1')
+ws2['A1'] = ('Блок «1 сентября». Все цифры — ссылки на лист «Каталог», отдельно ничего не правится. '
+             'Себестоимость включает упаковку; доставка оплачивается клиентом отдельно.')
+ws2['A1'].alignment = Alignment(vertical='center', wrap_text=True)
+ws2['A1'].font = Font(italic=True, size=10, color='4A4A4A')
+ws2['A1'].fill = NOTE_FILL
+ws2.row_dimensions[1].height = 32
 header(ws2, ['ID','Название','Категория','Состав','Описание','Себестоимость','Цена','Маржа ₽',
-             'Маржа %','Пометка','Комментарий'], [9,20,12,34,44,14,10,10,10,14,34])
-idx = {r['name']: i for i, r in enumerate(rows, start=2)}
+             'Маржа %','Пометка','Комментарий'], [9,20,12,34,44,14,10,10,10,14,34], row=2)
+idx = {r['name']: i for i, r in enumerate(rows, start=3)}
 school_rows = [(n, 'из каталога') for n in SCHOOL_EXISTING] + [(n, 'новый') for n, *_ in SCHOOL]
 SCHOOL_CMT = {
  'Первоклассник':'красные розы + солидаго, классика первого звонка','Звонок':'ростовой букет для линейки',
  'Луч':'подсолнухи — самый «сентябрьский» цветок','Клён':'подсолнухи охапкой, для директора/завуча',
  'Рябина':'осенний люкс, подарок от класса','Астра':'гвоздика микс, стойкая на жаре',
  'Инжир':'герберы, крупный и щедрый','Сидр':'георгины + астильба, тёплая осенняя гамма'}
-for j, (nm, mark) in enumerate(school_rows, start=2):
+for j, (nm, mark) in enumerate(school_rows, start=3):
     src = idx[nm]
-    for col, letter in ((1,'A'),(2,'B'),(3,'C'),(4,'D'),(5,'E'),(6,'F'),(7,'G')):
+    for col, letter in ((1,'A'),(2,'B'),(3,'C'),(4,'D'),(5,'E'),(6,'G'),(7,'H')):
         ws2.cell(j, col, '=Каталог!$%s$%d' % (letter, src))
     ws2.cell(j, 2).font = Font(bold=True)
     for col, al in ((1,TOP),(2,TOPWRAP),(3,TOPCTR),(4,TOPWRAP),(5,TOPWRAP)):
@@ -410,9 +449,50 @@ for j, (nm, mark) in enumerate(school_rows, start=2):
     if mark == 'новый':
         ws2.cell(j, 10).fill = PatternFill('solid', fgColor='FBF0E8')
     ws2.row_dimensions[j].height = 58
-ws2.freeze_panes = 'C2'
-ws2.auto_filter.ref = 'A1:K%d' % (len(school_rows) + 1)
-SCH_LAST = len(school_rows) + 1
+ws2.freeze_panes = 'C3'
+SCH_LAST = len(school_rows) + 2
+ws2.auto_filter.ref = 'A2:K%d' % SCH_LAST
+
+# ---- План выкладки
+ws6 = wb.create_sheet('План выкладки')
+ws6.merge_cells('A1:I1')
+ws6['A1'] = ('Порядок вывода каталога в бот. Сегодня 11 августа; пик школьного спроса — 25 августа – 1 сентября. '
+             'Волна 1 закрывает школу и старт осени, волна 2 — свадьбы, волна 3 — круглогодичная база, '
+             'которую незачем выкладывать в школьный пик.')
+ws6['A1'].alignment = Alignment(vertical='center', wrap_text=True)
+ws6['A1'].font = Font(italic=True, size=10, color='4A4A4A')
+ws6['A1'].fill = NOTE_FILL
+ws6.row_dimensions[1].height = 40
+header(ws6, ['Волна','Срок','Почему так','ID','Название','Категория','Цена','Фото','Что сделать до выкладки'],
+       [7, 16, 34, 9, 22, 12, 10, 8, 34], row=2)
+j = 3
+for w in (1, 2, 3):
+    for r in sorted([x for x in rows if x['wave'] == w], key=lambda x: (CAT_ORDER[x['cat']], x['price'])):
+        ws6.cell(j, 1, w).alignment = TOPCTR
+        ws6.cell(j, 2, WAVE_META[w][0]).alignment = TOPWRAP
+        ws6.cell(j, 3, WAVE_META[w][1]).alignment = TOPWRAP
+        ws6.cell(j, 4, r['id']).alignment = TOP
+        ws6.cell(j, 5, r['name']).alignment = TOPWRAP
+        ws6.cell(j, 6, r['cat']).alignment = TOPCTR
+        ws6.cell(j, 7, r['price']).number_format = '# ##0 ₽'
+        ws6.cell(j, 7).alignment = TOP
+        ws6.cell(j, 8, r['photo']).alignment = TOPCTR
+        if r['src'] == 'прод':
+            todo = 'уже в боте' + (' — обновить цену через /edit' if r['price'] != r['base'] else '')
+        elif r['photo'] == 'нет':
+            todo = 'снять фото, затем /add'
+        else:
+            todo = 'фото есть — завести через /add'
+        ws6.cell(j, 9, todo).alignment = TOPWRAP
+        ws6.cell(j, 1).fill = WAVE_FILL[w]
+        if r['photo'] == 'нет':
+            ws6.cell(j, 8).fill = PatternFill('solid', fgColor='FBE9E7')
+        for c in range(1, 10):
+            ws6.cell(j, c).border = BORDER
+        ws6.row_dimensions[j].height = 30
+        j += 1
+ws6.freeze_panes = 'D3'
+ws6.auto_filter.ref = 'A2:I%d' % (j - 1)
 
 # ---- Прайс
 ws3 = wb.create_sheet('Прайс')
@@ -426,9 +506,18 @@ for i, (sec, code, name, price) in enumerate(price_rows, start=2):
     ws3.cell(i, 4).alignment = TOP
 ws3.freeze_panes = 'A2'
 ws3.auto_filter.ref = 'A1:D%d' % (len(price_rows) + 1)
+ws3.column_dimensions['F'].width = 30
+ws3.column_dimensions['G'].width = 14
 ws3['F1'] = 'Копия прайса оптовой базы «Прайс_07_07» — единственный источник закупочных цен.'
 ws3['F2'] = 'На эти ячейки ссылаются формулы себестоимости в листах «Каталог» и «1 сентября».'
-for c in ('F1', 'F2'):
+ws3['F4'] = 'Упаковка — тариф по числу стеблей'
+ws3['F4'].font = Font(bold=True)
+for cap, price, label, row in PACK:
+    ws3.cell(row, 6, label).border = BORDER
+    ws3.cell(row, 7, price).border = BORDER
+    ws3.cell(row, 7).number_format = '# ##0 ₽'
+ws3['F9'] = 'Доставка в себестоимость не входит (Яндекс.Доставка, платит клиент).'
+for c in ('F1', 'F2', 'F9'):
     ws3[c].font = Font(italic=True, color='777777')
 
 # ---- Сводка
@@ -437,37 +526,50 @@ for col, w in (('A', 42), ('B', 16), ('C', 60)):
     ws4.column_dimensions[col].width = w
 ws4['A1'] = 'FLOWIX — сводка по каталогу'
 ws4['A1'].font = Font(bold=True, size=14)
-R = 'Каталог!'
-S = "'1 сентября'!"
+ws4.merge_cells('A2:C2')
+ws4['A2'] = HEAD_NOTE
+ws4['A2'].alignment = Alignment(vertical='center', wrap_text=True)
+ws4['A2'].font = Font(italic=True, size=10, color='4A4A4A')
+ws4['A2'].fill = NOTE_FILL
+ws4.row_dimensions[2].height = 46
+R, S, W = 'Каталог!', "'1 сентября'!", "'План выкладки'!"
 sm = [
- ('Всего позиций в каталоге', '=COUNTA(%sA2:A%d)' % (R, LAST), 'строки листа «Каталог»'),
- ('— из них уже в боте', '=COUNTIF(%sA2:A%d,"PRD-*")' % (R, LAST), 'заведены через /add, цены не менялись'),
- ('— из них новых', '=COUNTIF(%sA2:A%d,"NEW-*")' % (R, LAST), 'список заказчика + блок «1 сентября»'),
+ ('Всего позиций в каталоге', '=COUNTA(%sA3:A%d)' % (R, LAST), 'строки листа «Каталог»'),
+ ('— из них уже в боте', '=COUNTIF(%sA3:A%d,"PRD-*")' % (R, LAST), 'заведены через /add'),
+ ('— из них новых', '=COUNTIF(%sA3:A%d,"NEW-*")' % (R, LAST), 'список заказчика + блок «1 сентября»'),
  (None, None, None),
- ('Стандарт', '=COUNTIF(%sC2:C%d,"Стандарт")' % (R, LAST), ''),
- ('Премиум', '=COUNTIF(%sC2:C%d,"Премиум")' % (R, LAST), ''),
- ('Люкс', '=COUNTIF(%sC2:C%d,"Люкс")' % (R, LAST), ''),
- ('ВАУ', '=COUNTIF(%sC2:C%d,"ВАУ")' % (R, LAST), ''),
+ ('Стандарт', '=COUNTIF(%sC3:C%d,"Стандарт")' % (R, LAST), ''),
+ ('Премиум', '=COUNTIF(%sC3:C%d,"Премиум")' % (R, LAST), ''),
+ ('Люкс', '=COUNTIF(%sC3:C%d,"Люкс")' % (R, LAST), ''),
+ ('ВАУ', '=COUNTIF(%sC3:C%d,"ВАУ")' % (R, LAST), ''),
  (None, None, None),
- ('Средняя цена', '=AVERAGE(%sG2:G%d)' % (R, LAST), '₽'),
- ('Минимальная цена', '=MIN(%sG2:G%d)' % (R, LAST), '₽'),
- ('Максимальная цена', '=MAX(%sG2:G%d)' % (R, LAST), '₽'),
- ('Средняя маржа %', '=AVERAGE(%sI2:I%d)' % (R, LAST), ''),
- ('Минимальная маржа %', '=MIN(%sI2:I%d)' % (R, LAST), ''),
- ('Максимальная маржа %', '=MAX(%sI2:I%d)' % (R, LAST), ''),
+ ('Средняя цена', '=AVERAGE(%sH3:H%d)' % (R, LAST), '₽'),
+ ('Минимальная цена', '=MIN(%sH3:H%d)' % (R, LAST), '₽'),
+ ('Максимальная цена', '=MAX(%sH3:H%d)' % (R, LAST), '₽'),
+ ('Средняя себестоимость', '=AVERAGE(%sG3:G%d)' % (R, LAST), 'цветы + упаковка'),
+ ('Расходы на упаковку, всего', '=SUM(%sF3:F%d)' % (R, LAST), 'если собрать по одному букету каждого вида'),
+ ('Средняя маржа %', '=AVERAGE(%sJ3:J%d)' % (R, LAST), 'после включения упаковки'),
+ ('Минимальная маржа %', '=MIN(%sJ3:J%d)' % (R, LAST), ''),
+ ('Максимальная маржа %', '=MAX(%sJ3:J%d)' % (R, LAST), ''),
  (None, None, None),
- ('Позиций с фото', '=COUNTIF(%sK2:K%d,"да")' % (R, LAST), ''),
- ('Позиций без фото', '=COUNTIF(%sK2:K%d,"нет")' % (R, LAST), 'нужно отснять — списком в «Проверке»'),
- ('Позиций без себестоимости', '=COUNTIF(%sF2:F%d,"—")' % (R, LAST), 'весь состав нашёлся в прайсе'),
- ('Позиций с маржой ниже 50%', '=COUNTIF(%sI2:I%d,"<0.5")' % (R, LAST), 'все — из прода, цены менять нельзя'),
- ('Позиций с маржой выше 75%', '=COUNTIF(%sI2:I%d,">0.75")' % (R, LAST), ''),
- ('Позиций дешевле себестоимости', '=SUMPRODUCT(--(%sG2:G%d<%sF2:F%d))' % (R, LAST, R, LAST), ''),
+ ('Позиций с фото', '=COUNTIF(%sL3:L%d,"да")' % (R, LAST), ''),
+ ('Позиций без фото', '=COUNTIF(%sL3:L%d,"нет")' % (R, LAST), 'списком — в «Проверке» и «Плане выкладки»'),
+ ('Позиций без себестоимости', '=COUNTIF(%sG3:G%d,"—")' % (R, LAST), 'весь состав нашёлся в прайсе'),
+ ('Позиций с маржой ниже 50%', '=COUNTIF(%sJ3:J%d,"<0.5")' % (R, LAST), 'после подъёма цен должно быть 0'),
+ ('Позиций с маржой выше 75%', '=COUNTIF(%sJ3:J%d,">0.75")' % (R, LAST), ''),
+ ('Позиций дешевле себестоимости', '=SUMPRODUCT(--(%sH3:H%d<%sG3:G%d))' % (R, LAST, R, LAST), ''),
+ ('Позиций с поднятой ценой', '=COUNTIF(%sN3:N%d,"*цена поднята*")' % (R, LAST), 'изменения помечены в примечании'),
  (None, None, None),
- ('Позиций в блоке «1 сентября»', '=COUNTA(%sA2:A%d)' % (S, SCH_LAST), ''),
- ('— перенесено из каталога', '=COUNTIF(%sJ2:J%d,"из каталога")' % (S, SCH_LAST), ''),
- ('— новых', '=COUNTIF(%sJ2:J%d,"новый")' % (S, SCH_LAST), ''),
+ ('Позиций в блоке «1 сентября»', '=COUNTA(%sA3:A%d)' % (S, SCH_LAST), ''),
+ ('— перенесено из каталога', '=COUNTIF(%sJ3:J%d,"из каталога")' % (S, SCH_LAST), ''),
+ ('— новых', '=COUNTIF(%sJ3:J%d,"новый")' % (S, SCH_LAST), ''),
+ (None, None, None),
+ ('Волна 1 — до 18 августа', '=COUNTIF(%sA3:A%d,1)' % (W, j - 1), 'школа и старт осени'),
+ ('Волна 2 — 19–25 августа', '=COUNTIF(%sA3:A%d,2)' % (W, j - 1), 'свадьбы и осенний люкс'),
+ ('Волна 3 — со 2 сентября', '=COUNTIF(%sA3:A%d,3)' % (W, j - 1), 'круглогодичная база'),
+ ('Нужно отснять к волне 1', '=COUNTIFS(%sA3:A%d,1,%sH3:H%d,"нет")' % (W, j - 1, W, j - 1), 'критический путь'),
 ]
-rr = 3
+rr = 4
 for label, formula, cmt in sm:
     if label is None:
         rr += 1
@@ -476,7 +578,7 @@ for label, formula, cmt in sm:
     ws4.cell(rr, 2, formula)
     if 'маржа' in label.lower():
         ws4.cell(rr, 2).number_format = '0.0%'
-    elif 'цена' in label.lower():
+    elif 'цена' in label.lower() or 'себестоимость' in label.lower() or 'упаковку' in label.lower():
         ws4.cell(rr, 2).number_format = '# ##0 ₽'
     ws4.cell(rr, 2).font = Font(bold=True)
     ws4.cell(rr, 2).alignment = Alignment(vertical='center', horizontal='center')
@@ -493,32 +595,47 @@ ws5 = wb.create_sheet('Проверка')
 header(ws5, ['#','Тип проверки','Позиция','Что не так','Что делать'], [5, 30, 26, 66, 46])
 checks = []
 
-# экономика: маржа ниже 50% и цена ниже себестоимости
+low = [r for r in rows if (r['price'] - r['cost']) / r['price'] < 0.50]
+under = [r for r in rows if r['price'] < r['cost']]
+for r in under:
+    checks.append(('Цена ниже себестоимости', r['name'],
+                   'цена %d ₽ при себестоимости %s ₽ (цветы %s + упаковка %d) — продажа в убыток'
+                   % (r['price'], ru(r['cost']), ru(r['flowers']), r['pack']),
+                   'поднять цену минимум до %d ₽' % bump(r['cost'])))
+if not under:
+    checks.append(('Цена ниже себестоимости', '—', 'таких позиций нет: проверены все %d строк каталога' % len(rows), '—'))
+for r in low:
+    checks.append(('Маржа ниже 50%', r['name'],
+                   'маржа %s%% при себестоимости %s ₽ (цветы %s + упаковка %d) и цене %d ₽'
+                   % (ru((r['price'] - r['cost']) / r['price'] * 100), ru(r['cost']), ru(r['flowers']),
+                      r['pack'], r['price']),
+                   'поднять цену до %d ₽' % bump(r['cost'])))
+if not low:
+    checks.append(('Маржа ниже 50%', '—',
+                   'после включения упаковки и подъёма цен таких позиций не осталось', '—'))
 for r in rows:
     m = (r['price'] - r['cost']) / r['price']
-    if r['price'] < r['cost']:
-        checks.append(('Цена ниже себестоимости', r['name'],
-                       'цена %d ₽ при себестоимости %s ₽ — продажа в убыток' % (r['price'], ru(r['cost'])),
-                       'поднять цену минимум до %d ₽' % bump(r['cost'])))
-    elif m < 0.50:
-        checks.append(('Маржа ниже 50%%', r['name'],
-                       'маржа %s%% — себестоимость %s ₽ при цене %d ₽ (%s)'
-                       % (ru(m * 100), ru(r['cost']), r['price'],
-                          'позиция из прода, цену просили не трогать' if r['src'] == 'прод' else 'новая позиция'),
-                       'рекомендуемая цена %d ₽ — маржа %s%%' % (bump(r['cost']), ru((bump(r['cost']) - r['cost']) / bump(r['cost']) * 100))))
-    elif m > 0.75:
-        checks.append(('Маржа выше 75%%', r['name'],
+    if m > 0.75:
+        checks.append(('Маржа выше 75%', r['name'],
                        'маржа %s%% при себестоимости %s ₽ и цене %d ₽' % (ru(m * 100), ru(r['cost']), r['price']),
                        'проверить состав: возможно, занижено количество стеблей'))
 for r in rows:
-    if r['src'] == 'новый' and r['price'] != r['base']:
-        checks.append(('Цена поднята при сборке', r['name'],
-                       'при ориентировочной цене %d ₽ маржа была %s%% (<50%%)'
-                       % (r['base'], ru((r['base'] - r['cost']) / r['base'] * 100)),
-                       'цена поднята до %d ₽ — маржа %s%%'
-                       % (r['price'], ru((r['price'] - r['cost']) / r['price'] * 100))))
+    if r['price'] != r['base']:
+        checks.append(('Цена поднята из-за упаковки' if r['src'] == 'прод' else 'Цена поднята при сборке',
+                       r['name'],
+                       'при цене %d ₽ и себестоимости с упаковкой %s ₽ маржа была %s%% (<50%%)%s'
+                       % (r['base'], ru(r['cost']), ru((r['base'] - r['cost']) / r['base'] * 100),
+                          '; позиция живая, в боте до сих пор стоит старая цена' if r['src'] == 'прод' else ''),
+                       'цена поднята до %d ₽ — маржа %s%%%s'
+                       % (r['price'], ru((r['price'] - r['cost']) / r['price'] * 100),
+                          '; обновить через /edit' if r['src'] == 'прод' else '')))
 
-# дубли и похожие названия
+checks.append(('Упаковка: тариф не бьётся с составом', 'Белое облако',
+               'букет считается как 2 стебля (2 банча гипсофилы) и попадает в самый дешёвый тариф 90 ₽, '
+               'хотя физически это большой букет',
+               'если по факту упаковка ближе к 190–250 ₽, поправить тариф вручную — себестоимость вырастет '
+               'на 100–160 ₽ и потребует ещё +200–400 ₽ к цене'))
+
 seen, dup = set(), set()
 for r in rows:
     key = r['name'].lower().replace('ё', 'е')
@@ -526,9 +643,9 @@ for r in rows:
         dup.add(r['name'])
     seen.add(key)
 for n in sorted(dup):
-    checks.append(('Дубль названия', n, 'название встречается в каталоге более одного раза', 'переименовать одну из позиций'))
+    checks.append(('Дубль названия', n, 'название встречается более одного раза', 'переименовать одну из позиций'))
 if not dup:
-    checks.append(('Дубли названий', '—', 'полных дублей названий нет: %d уникальных на %d строк' % (len(seen), len(rows)), '—'))
+    checks.append(('Дубли названий', '—', 'полных дублей нет: %d уникальных на %d строк' % (len(seen), len(rows)), '—'))
 for a in rows:
     for b in rows:
         if a is b:
@@ -540,7 +657,6 @@ for a in rows:
                            % (a['name'], b['name']),
                            'переименовать одну из позиций либо развести описаниями'))
 
-# похожие составы
 sig, exact = {}, {}
 for r in rows:
     sig.setdefault(tuple(sorted(k for k, _ in r['comp_raw'])), []).append((r['name'], r['comp']))
@@ -557,7 +673,6 @@ for key, lst in sorted(sig.items()):
                        ' | '.join('%s — %s' % (n, c) for n, c in lst),
                        'норма для линейки размеров — убедиться, что позиции различимы для покупателя'))
 
-# сопоставление с прайсом
 approx = {}
 for r in rows:
     for k, _ in r['comp_raw']:
@@ -572,12 +687,12 @@ checks.append(('Фасовка в прайсе не указана', 'эвкал
                '390 ₽ это ветка или пучок. Считается как за ветку',
                'уточнить у базы; если 390 ₽ — пучок, себестоимость Малахита, Сливочного Крема, '
                'Густого августа и Облака августа упадёт'))
-checks.append(('Гипсофила: выбор банча', 'Белое облако',
-               'в прайсе три банча: белая 1 990 ₽ (00028), крашеная 2 190 ₽ (00365), Китай 1 390 ₽ (01215). '
-               'Взята белая — по названию букета',
-               'если в проде закупается китайская, себестоимость 2 780 ₽ и маржа выходит 53,6% без изменения цены'))
+checks.append(('Дешевле без роста цены', 'Солнце, Белое облако',
+               'у обоих в прайсе есть более дешёвый аналог того же цветка: подсолнух Китай 139,90 ₽ (01210) '
+               'вместо 159,90 ₽ (00325) и гипсофила Китай банч 1 390 ₽ (01215) вместо белой 1 990 ₽ (00028)',
+               'если качество устраивает — переход на них поднимает маржу без повышения цены; '
+               'сейчас в файле цена поднята по правилу «маржа не ниже 50%»'))
 
-# состав, требующий уточнения
 for nm, what, todo in [
  ('Специя', 'в списке «роза Горкунов красная 9» без длины ноги; у соседних позиций указано 50 см',
   'себестоимость посчитана по 50 см (01065, 68,90 ₽); при 40 см (01064, 32,90 ₽) она вдвое ниже'),
@@ -585,35 +700,37 @@ for nm, what, todo in [
  ('Сливочный Крем', '«роза кустовая 3» без страны и длины — в прайсе десятки кустовых от 45,90 до 249,90 ₽',
   'посчитано по «Роза ГОРКУНОВ 50 см КУСТ» (01067, 149,90 ₽)'),
  ('Тотал ред', 'в прайсе две розы «Ред Наоми 60 см»: Горкунов 87,90 ₽ (01461) и Флорентика 81,00 ₽ (01412)',
-  'посчитано по Горкунову; на Флорентике маржа 59,4% вместо 56,0% — на решение не влияет'),
+  'посчитано по Горкунову; разница в марже около 3 п.п.'),
  ('Пионовидный сад', 'позиции «роза Эквадор пионовидная 60 см» в чистом виде в прайсе нет',
   'посчитано по «Роза Эквадор Пионовидная + Сорт 60 см» (00673, 95,90 ₽)'),
 ]:
     checks.append(('Уточнить состав', nm, what, todo))
 
-# фото и статусы
 nophoto = [r['name'] for r in rows if r['photo'] == 'нет']
-checks.append(('Нет фото', '%d позиций' % len(nophoto),
-               ', '.join(nophoto), 'отснять до заведения в бот'))
+w1_nophoto = [r['name'] for r in rows if r['photo'] == 'нет' and r['wave'] == 1]
+checks.append(('Нет фото — волна 1', '%d позиций' % len(w1_nophoto),
+               ', '.join(w1_nophoto), 'критический путь: снять до 18 августа, иначе школьный блок неполный'))
+checks.append(('Нет фото — волна 3', '%d позиций' % (len(nophoto) - len(w1_nophoto)),
+               ', '.join(n for n in nophoto if n not in w1_nophoto), 'снять до 5 сентября'))
 checks.append(('Категория не задана источником', '14 позиций из прода',
                'для позиций, уже живущих в боте, категория в задании не указана — проставлена по ценовой '
                'сетке каталога (Стандарт до 2 000 ₽, Премиум до 5 000 ₽, Люкс выше)',
                'сверить с тем, что реально стоит в боте'))
 checks.append(('Статус позиций', '%d новых (NEW-01…NEW-%02d)' % (nn, nn),
                'новых позиций нет в боте — они существуют только в этом файле',
-               'завести через /add после согласования цен и фото'))
+               'заводить через /add по волнам (лист «План выкладки»)'))
 
 for i, (typ, pos, what, todo) in enumerate(checks, start=2):
     ws5.cell(i, 1, i - 1).alignment = TOPCTR
-    ws5.cell(i, 2, typ.replace('%%', '%')).alignment = TOPWRAP
+    ws5.cell(i, 2, typ).alignment = TOPWRAP
     ws5.cell(i, 3, pos).alignment = TOPWRAP
     ws5.cell(i, 4, what).alignment = TOPWRAP
     ws5.cell(i, 5, todo).alignment = TOPWRAP
     for c in range(1, 6):
         ws5.cell(i, c).border = BORDER
-    if typ.startswith(('Маржа ниже', 'Цена ниже')):
+    if typ.startswith(('Маржа ниже', 'Цена ниже', 'Нет фото — волна 1')):
         ws5.cell(i, 2).fill = PatternFill('solid', fgColor='FBE9E7')
-    ws5.row_dimensions[i].height = max(46, min(150, 15 * (int(max(len(what) / 64.0, len(pos) / 24.0, 1)) + 1)))
+    ws5.row_dimensions[i].height = max(46, min(160, 15 * (int(max(len(what) / 64.0, len(pos) / 24.0, 1)) + 1)))
 ws5.freeze_panes = 'A2'
 ws5.auto_filter.ref = 'A1:E%d' % (len(checks) + 1)
 
@@ -621,17 +738,20 @@ wb.save(OUT)
 
 # ---------------------------------------------------------------- контроль
 print('позиций: %d (прод %d + новых %d)' % (len(rows), np, nn))
-print('1 сентября: %d | Проверка: %d | Прайс: %d' % (len(school_rows), len(checks), len(price_rows)))
+print('1 сентября: %d | План выкладки: %d | Проверка: %d | Прайс: %d'
+      % (len(school_rows), j - 3, len(checks), len(price_rows)))
 print('фото да/нет: %d / %d' % (sum(1 for r in rows if r['photo'] == 'да'),
                                 sum(1 for r in rows if r['photo'] == 'нет')))
-out = []
-for r in rows:
-    m = (r['price'] - r['cost']) / r['price']
-    if m < 0.50 or m > 0.75:
-        out.append((r['name'], r['src'], round(m * 100, 1)))
-print('вне 50–75%:', out)
+print('волны: 1 — %d, 2 — %d, 3 — %d' % tuple(sum(1 for r in rows if r['wave'] == w) for w in (1, 2, 3)))
+print('снять к волне 1: %d' % sum(1 for r in rows if r['wave'] == 1 and r['photo'] == 'нет'))
 print()
+print('--- цены, поднятые из-за упаковки ---')
 for r in rows:
-    m = (r['price'] - r['cost']) / r['price']
-    print('%-8s %-19s %-9s %-9s cost=%8.2f price=%6d m=%5.1f%%' %
-          (r['id'], r['name'], r['cat'], r['src'], r['cost'], r['price'], m * 100))
+    if r['price'] != r['base']:
+        print('  %-19s %-7s %5d -> %5d ₽  (цветы %7.2f + уп. %3d = %7.2f)  маржа %s%% -> %s%%'
+              % (r['name'], r['src'], r['base'], r['price'], r['flowers'], r['pack'], r['cost'],
+                 ru((r['base'] - r['cost']) / r['base'] * 100), ru((r['price'] - r['cost']) / r['price'] * 100)))
+out = [(r['name'], round((r['price'] - r['cost']) / r['price'] * 100, 1)) for r in rows
+       if not 0.5 <= (r['price'] - r['cost']) / r['price'] <= 0.75]
+print()
+print('вне 50–75%:', out or 'нет')
