@@ -81,7 +81,7 @@ export const content = {
     boxNote: 'доедет таким, каким вы его видите',
     inCart: 'добавлено',
     qtyLabel: 'количество',
-    addToCart: 'в корзину',
+    addToCart: 'забрать',
     flowersUnit: 'шт',
     availabilityNote: 'состав согласуем на сборке',
     soldOut: 'этот букет закончился',
@@ -96,7 +96,7 @@ export const content = {
     toCatalog: 'в каталог',
     inBouquet: 'в букете',
     total: 'итого',
-    checkout: 'оформить заказ',
+    checkout: 'оформить',
     removed: 'убрали из корзины то, что закончилось',
   },
 

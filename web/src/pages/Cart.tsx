@@ -92,9 +92,7 @@ export default function Cart() {
                 </div>
                 <div className="mt-auto flex items-center justify-between pt-2">
                   <Stepper value={item.qty} onChange={(v) => setQty(item.variantId, v)} />
-                  <span className="price text-[17px]">
-                    {formatPrice(item.price * item.qty)}
-                  </span>
+                  <span className="price price-card">{formatPrice(item.price * item.qty)}</span>
                 </div>
               </div>
             </div>
