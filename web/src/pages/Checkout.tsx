@@ -547,7 +547,7 @@ export default function Checkout() {
           type="button"
           onClick={submit}
           disabled={submitting}
-          className="btn-accent btn-accent-strong min-h-[52px] w-full rounded-button text-[15px] font-semibold lowercase text-on-accent disabled:opacity-50"
+          className="cta btn-accent btn-accent-strong min-h-[52px] w-full rounded-button text-[15px] lowercase text-on-accent disabled:opacity-50"
         >
           {submitting ? c.submitting : error ? c.submitRetry : c.submit}
         </button>

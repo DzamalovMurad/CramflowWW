@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MenuHeader } from "../components/Header";
 import CategoryChips from "../components/CategoryChips";
 import FilterPills from "../components/FilterPills";
 import ProductCardView from "../components/ProductCardView";
+import DealsRibbon, { pickDeals } from "../components/DealsRibbon";
 import { Link } from "react-router-dom";
 import {
   fetchAllProducts,
@@ -23,7 +24,7 @@ const c = content.home;
 type Sort = "" | "cheap" | "expensive";
 
 /**
- * Главная = меню (скелет Bunch): баннеры → sticky-фильтры → сетка товаров →
+ * Главная = меню (скелет Bunch): лента «подешевле» → sticky-фильтры → сетка →
  * горизонтальная полка WOW → шторка сортировки. Букеты видны сразу после загрузки.
  */
 export default function Home() {
@@ -73,13 +74,14 @@ export default function Home() {
       .catch(() => {});
   }, []);
 
-  // Баннеры: следим за скроллом карусели для точек-индикаторов.
-  const bannerRef = useRef<HTMLDivElement>(null);
-  const [bannerIdx, setBannerIdx] = useState(0);
-  const onBannerScroll = () => {
-    const el = bannerRef.current;
-    if (el) setBannerIdx(Math.round(el.scrollLeft / el.clientWidth));
-  };
+  // Лента «подешевле»: отдельный запрос за популярным, чтобы отбор не зависел
+  // от текущей категории и фильтра — под шапкой всегда одно и то же.
+  const [deals, setDeals] = useState<ProductCard[]>([]);
+  useEffect(() => {
+    fetchProducts('', 'popular')
+      .then((list) => setDeals(pickDeals(list)))
+      .catch(() => {}); // лента необязательна — без неё витрина работает
+  }, []);
 
   const addCheapest = async (card: ProductCard) => {
     const product = await fetchProduct(card.id).catch(() => null);
@@ -126,7 +128,6 @@ export default function Home() {
 
   const minPrice =
     grid && grid.length > 0 ? Math.min(...grid.map((p) => p.price)) : 0;
-  const banners = 1 + (freshToday ? 1 : 0);
 
   return (
     <div className="pb-24">
@@ -152,49 +153,20 @@ export default function Home() {
         </Link>
       )}
 
-      {/* БАННЕРЫ */}
-      <section className="px-4 pt-3">
-        <div
-          ref={bannerRef}
-          className="banner-scroll"
-          onScroll={onBannerScroll}
-        >
-          <div className="banner-card relative bg-ink p-5">
-            <p className="label mb-2 !text-accent-ink">{c.badge}</p>
-            <h1 className="display text-page">{c.title}</h1>
-            <p className="mt-3 max-w-[15rem] text-[13px] leading-relaxed text-page opacity-70">
-              {c.subtitle}
-            </p>
-            <span className="absolute right-4 top-4 h-2.5 w-2.5 rounded-full bg-accent" />
-          </div>
-          {freshToday && (
-            <div className="banner-card relative border border-line bg-surface p-5">
-              <p className="label mb-2 flex items-center gap-2">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-70" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
-                </span>
-                {c.freshToday}
-              </p>
-              <p className="mt-1 text-[17px] font-medium leading-snug">
-                {freshToday}
-              </p>
-            </div>
-          )}
-        </div>
-        {banners > 1 && (
-          <div className="mt-2 flex justify-center gap-1.5">
-            {Array.from({ length: banners }).map((_, i) => (
-              <span
-                key={i}
-                className={`h-1.5 rounded-full transition-all ${
-                  i === bannerIdx ? "w-4 bg-ink" : "w-1.5 bg-line"
-                }`}
-              />
-            ))}
-          </div>
-        )}
-      </section>
+      {/* «СЕГОДНЯ НА БАЗЕ» — живая строка о том, что закупил флорист */}
+      {freshToday && (
+        <p className="mx-4 mt-3 flex items-center gap-2 rounded-input border border-line bg-surface px-3.5 py-2.5 text-[13px] leading-snug">
+          <span className="relative flex h-2 w-2 flex-shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-70" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+          </span>
+          <span className="label !text-[10px]">{c.freshToday}</span>
+          <span className="min-w-0 flex-1 truncate text-muted">{freshToday}</span>
+        </p>
+      )}
+
+      {/* ЛЕНТА «ПОДЕШЕВЛЕ» — ходовые букеты едут сами, до первого скролла */}
+      {deals.length > 0 && <DealsRibbon items={deals} />}
 
       {/* ФИЛЬТРЫ — прилипают к верху; фон сплошной, карточки уходят под него без «грязи» */}
       <div className="sticky top-0 z-10 mt-2 border-b border-line bg-page">

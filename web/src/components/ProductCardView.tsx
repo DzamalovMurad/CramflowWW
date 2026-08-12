@@ -192,7 +192,7 @@ export default function ProductCardView({ product, index, onAdd }: Props) {
         {available && (
           <p className="label mb-1 !text-[10px] text-accent-2">{content.catalog.deliveryToday}</p>
         )}
-        <p className="line-clamp-1 text-[15px] font-medium leading-snug">{product.name}</p>
+        <p className="card-title line-clamp-1 text-[13px] leading-snug">{product.name}</p>
         <div className="mt-1 flex items-baseline gap-2">
           <span className="price text-[17px]">{formatPrice(product.price)}</span>
           {off > 0 && (

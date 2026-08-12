@@ -168,7 +168,7 @@ export default function ProductPage() {
         <button
           onClick={addToCart}
           disabled={!available}
-          className="btn-accent flex min-h-[52px] w-full items-center justify-between rounded-button px-5 text-[15px] font-semibold text-on-accent disabled:opacity-50"
+          className="cta btn-accent flex min-h-[52px] w-full items-center justify-between rounded-button px-5 text-[15px] text-on-accent disabled:opacity-50"
         >
           <span>{available ? content.product.addToCart : content.catalog.soldOut}</span>
           {available && (

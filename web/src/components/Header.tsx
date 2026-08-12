@@ -18,7 +18,7 @@ export function MenuHeader() {
       <div className="relative flex h-10 items-center justify-center">
         <Link
           to="/"
-          className="flex min-h-[44px] items-center px-2 text-[27px] font-extrabold tracking-[-0.03em]"
+          className="brand flex min-h-[44px] items-center px-2 text-[23px]"
         >
           {content.brand}
           <span className="text-accent-2">.</span>
@@ -73,7 +73,7 @@ export default function Header({
         )}
         <Link
           to="/"
-          className="flex min-h-[44px] items-center text-[21px] font-extrabold tracking-[-0.03em]"
+          className="brand flex min-h-[44px] items-center text-[18px]"
         >
           {content.brand}
           <span className="text-accent-2">.</span>
@@ -84,7 +84,7 @@ export default function Header({
       </div>
 
       {search && (
-        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-line bg-tile/60 px-3 py-2 backdrop-blur focus-within:border-accent-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-line bg-tile/60 px-3 py-2 backdrop-blur">
           <span className="flex-shrink-0 text-muted">
             <IconSearch size={17} />
           </span>
@@ -92,7 +92,7 @@ export default function Header({
             value={search.value}
             onChange={(e) => search.onChange(e.target.value)}
             placeholder={search.placeholder ?? content.catalog.searchPlaceholder}
-            className="min-w-0 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-muted"
+            className="search-input min-w-0 flex-1 bg-transparent text-[14px] text-ink placeholder:text-muted"
           />
           {search.value && (
             <button

@@ -9,9 +9,10 @@
          на первом экране: остальное подтянется по мере надобности. -->
     <link rel="preload" href="/fonts/Manrope-Regular-cyrillic.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/Manrope-SemiBold-cyrillic.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="preload" href="/fonts/CormorantGaramond-Regular-cyrillic.woff2" as="font" type="font/woff2" crossorigin />
-    <!-- Логотип виден с первого кадра: без предзагрузки марка успевает мигнуть системным шрифтом. -->
-    <link rel="preload" href="/fonts/Manrope-ExtraBold-cyrillic.woff2" as="font" type="font/woff2" crossorigin />
+    <!-- Логотип и заголовки видны с первого кадра: без предзагрузки марка
+         успевает мигнуть системным шрифтом. Файл вариативный — одного хватает
+         на все веса Unbounded, отдельная предзагрузка под жирные не нужна. -->
+    <link rel="preload" href="/fonts/Unbounded-Variable-cyrillic.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/fonts/fonts.css" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>

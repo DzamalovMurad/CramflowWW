@@ -29,18 +29,23 @@
   --c-season-on: #FFF7EF;
 
   /* Типографика — две гарнитуры и ни одной лишней.
-     Manrope: весь функциональный интерфейс — кнопки, карточки, цены, формы.
-     Cormorant Garamond: только крупные брендовые фразы (hero, «заказ принят»,
-     название букета на его странице). Антиква в мелком тексте не читается,
-     поэтому ниже 24px она не используется нигде. */
+     Manrope: всё, что читают, — текст, описания, состав, формы, цены.
+     Unbounded: только то, чем бренд представляется, — логотип, заголовки,
+     главные кнопки, бейджи. Гарнитура широкая и характерная: в наборе текста
+     она утомляет, поэтому в описаниях и подписях её нет нигде. */
   --font-body: 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-display: 'Cormorant Garamond', 'Iowan Old Style', Garamond, Georgia, 'Times New Roman', serif;
+  --font-display: 'Unbounded', 'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
   /* Шкала. Значения в px, а не rem: Telegram Mini App живёт в webview
-     с собственным масштабом, и rem там даёт непредсказуемый размер. */
-  --t-hero: 34px; /* брендовая фраза на главной */
-  --t-title: 28px; /* название букета, «заказ принят» */
-  --t-section: 20px; /* заголовки секций */
+     с собственным масштабом, и rem там даёт непредсказуемый размер.
+
+     Кегли заголовков уменьшены при переходе на Unbounded: её знаки примерно
+     в полтора раза шире прежней антиквы при большей высоте строчных, и на
+     прежних 34/28/20px заголовки переставали помещаться в 375px. Оптический
+     размер и иерархия остались прежними — изменилось только число. */
+  --t-hero: 26px; /* брендовая фраза на главной */
+  --t-title: 21px; /* название букета, «заказ принят» */
+  --t-section: 17px; /* заголовки секций */
   --t-body: 15px; /* основной текст, поля форм */
   --t-small: 13px; /* вторичное */
   --t-label: 11px; /* надписи-метки капсом */
@@ -87,9 +92,9 @@
    Функциональные размеры не трогаем: 15px читается одинаково везде. */
 @media (min-width: 412px) {
   :root {
-    --t-hero: 38px;
-    --t-title: 30px;
-    --t-section: 21px;
+    --t-hero: 29px;
+    --t-title: 23px;
+    --t-section: 18px;
   }
 }
 
@@ -128,32 +133,51 @@ body {
    утилитами по месту: иначе через месяц в проекте снова девять разных
    заголовков и всё жирное. */
 
-/* Брендовая фраза: антиква, светлое начертание, крупный кегль.
-   Регистр не трогаем — заглавная буква здесь и создаёт ощущение марки. */
+/* Брендовая фраза: Unbounded, жирное начертание, крупный кегль.
+   Регистр не трогаем — заглавная буква здесь и создаёт ощущение марки.
+   Трекинг отрицательный: у широкой гарнитуры дефолтные пробелы между
+   знаками разваливают строку. */
 .display {
   font-family: var(--font-display);
-  font-weight: 400;
+  font-weight: 700;
   font-size: var(--t-hero);
-  letter-spacing: -0.005em;
-  line-height: 1.08;
+  letter-spacing: -0.03em;
+  line-height: 1.14;
 }
 
 /* Название букета и другие крупные заголовки-«вещи». */
 .title {
   font-family: var(--font-display);
-  font-weight: 500;
+  font-weight: 700;
   font-size: var(--t-title);
-  letter-spacing: -0.005em;
-  line-height: 1.12;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
 }
 
-/* Функциональный заголовок секции: гротеск, полужирный, плотный трекинг. */
+/* Функциональный заголовок секции (H2). */
 .heading {
-  font-family: var(--font-body);
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-weight: 700;
   font-size: var(--t-section);
+  letter-spacing: -0.03em;
+  line-height: 1.25;
+}
+
+/* Логотип. Самый тяжёлый вес — марка должна читаться как знак, а не как
+   слово в тексте. Точка после слова остаётся акцентной. */
+.brand {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+/* Подпись главной кнопки: «оформить заказ», «в корзину», «подтвердить».
+   Только крупные CTA — у второстепенных кнопок остаётся Manrope,
+   иначе экран превращается в набор вывесок. */
+.cta {
+  font-family: var(--font-display);
+  font-weight: 700;
   letter-spacing: -0.02em;
-  line-height: 1.2;
 }
 
 /* Надпись-метка: капс, разреженный трекинг, приглушённый цвет.
@@ -345,10 +369,13 @@ body {
   gap: 4px;
   padding: 5px 10px;
   border-radius: 9999px;
-  font-family: var(--font-body);
+  /* Бейдж — брендовый акцент, поэтому Unbounded. Трекинг вдвое меньше
+     прежнего: широкая гарнитура плюс капс плюс разрядка не помещаются
+     в угол фотографии. */
+  font-family: var(--font-display);
   font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   line-height: 1;
   background: rgba(0, 0, 0, 0.4);
@@ -376,6 +403,12 @@ body {
   border-color: var(--c-season-line);
   background: var(--c-season-soft);
   color: var(--c-season);
+  /* Сезонная плашка — брендовый акцент кампании, поэтому Unbounded.
+     Разрядку убираем: у широкой гарнитуры капс с трекингом 0.08em
+     выталкивает таблетку за край ленты фильтров. */
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 .pill-season-active {
   border-color: transparent;
@@ -383,12 +416,14 @@ body {
   color: var(--c-season-on);
 }
 
-/* Вкладки категорий: активная — «таблетка» с инверсией */
+/* Вкладки категорий: активная — «таблетка» с инверсией.
+   Название категории — брендовая роль, поэтому Unbounded. */
 .tab {
   position: relative;
   white-space: nowrap;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.03em;
   transition: color 0.2s ease;
   color: var(--c-muted);
 }
@@ -438,9 +473,10 @@ body {
   display: flex;
   align-items: baseline;
   gap: 7px;
-  font-size: 40px;
+  font-family: var(--font-display);
+  font-size: 34px; /* Unbounded шире прежней гарнитуры — иначе марка упирается в края */
   font-weight: 800;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
   text-transform: lowercase;
   animation: loader-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both, mark-pulse 1.6s ease-in-out 0.6s infinite;
 }
@@ -482,24 +518,6 @@ body {
 @keyframes bar-slide {
   from { transform: translateX(-110%); }
   to { transform: translateX(310%); }
-}
-
-/* Баннер-карусель: горизонтальный snap-скролл */
-.banner-scroll {
-  display: flex;
-  gap: 10px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-.banner-scroll::-webkit-scrollbar { display: none; }
-.banner-card {
-  flex: 0 0 100%;
-  scroll-snap-align: center;
-  border-radius: var(--radius-card);
-  overflow: hidden;
-  min-height: 150px;
 }
 
 /* Шторка сортировки */
@@ -582,5 +600,85 @@ body {
   .animate-fade-in,
   .animate-pop-in {
     animation-duration: 0.01s;
+  }
+}
+
+/* Название букета в карточке каталога: брендовая гарнитура в узкой колонке.
+   Кегль меньше основного текста и трекинг плотный — иначе длинные названия
+   («Французский сад», «Нежность Кустовая») обрезаются на первой же строке. */
+.card-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+
+/* Поиск: при вводе виден только текст. Глобальное кольцо фокуса здесь лишнее —
+   поле и так очевидно активно (курсор, набранный текст), а неоновая обводка
+   вокруг всей шапки выглядит как ошибка ввода. У кнопок и ссылок кольцо
+   остаётся: там без него не понять, что выбрано с клавиатуры. */
+.search-input:focus,
+.search-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* ─── Лента «подешевле» ──────────────────────────────────────
+   Едет сама: трек с удвоенным списком сдвигается на половину ширины
+   и мгновенно возвращается — стык не виден. Скорость привязана к числу
+   карточек через --ribbon-time, чтобы лента не разгонялась на коротком
+   списке и не ползла на длинном. */
+.ribbon-mask {
+  overflow: hidden;
+  /* Края растворяются, а не обрубаются: понятно, что лента продолжается. */
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+}
+
+.ribbon-track {
+  display: flex;
+  gap: 10px;
+  width: max-content;
+  padding: 2px 16px;
+  animation: ribbon-run var(--ribbon-time, 40s) linear infinite;
+}
+
+/* Палец на ленте — движение замирает, карточку можно рассмотреть и нажать. */
+.ribbon-mask:active .ribbon-track,
+.ribbon-track:hover {
+  animation-play-state: paused;
+}
+
+.ribbon-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 8px 8px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-card);
+  background: var(--c-surface);
+  box-shadow: var(--shadow-card);
+  transition: transform 0.15s ease;
+}
+.ribbon-item:active {
+  transform: scale(0.97);
+}
+
+@keyframes ribbon-run {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    /* Половина трека = ровно одна копия списка. */
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+/* Уважение к системной настройке: лента замирает, но остаётся прокручиваемой. */
+@media (prefers-reduced-motion: reduce) {
+  .ribbon-track {
+    animation: none;
+  }
+  .ribbon-mask {
+    overflow-x: auto;
   }
 }

@@ -29,6 +29,8 @@ export const content = {
     shelfCaption: 'составные композиции, которые запоминают надолго',
     shelfAll: 'все',
     activeOrder: 'ваш заказ',
+    dealsTitle: 'подешевле',
+    dealsHint: 'в наличии сегодня',
   },
 
   /** Сезонная кампания «к 1 сентября» (см. src/seasonal.ts). */

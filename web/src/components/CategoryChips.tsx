@@ -26,7 +26,7 @@ export default function CategoryChips({ selected, onSelect }: Props) {
               haptic('light');
               onSelect(name);
             }}
-            className={`tab snap-start min-h-[44px] rounded-button px-4 text-[15px] lowercase ${
+            className={`tab snap-start min-h-[44px] rounded-button px-3.5 text-[13px] lowercase ${
               active ? 'neon-glow bg-ink !text-page' : ''
             }`}
           >

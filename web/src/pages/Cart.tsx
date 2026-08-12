@@ -109,7 +109,7 @@ export default function Cart() {
         </div>
         <button
           onClick={() => navigate('/checkout')}
-          className="btn-accent min-h-[52px] w-full rounded-button text-[15px] font-semibold text-on-accent"
+          className="cta btn-accent min-h-[52px] w-full rounded-button text-[15px] text-on-accent"
         >
           {content.cart.checkout}
         </button>
