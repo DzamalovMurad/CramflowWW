@@ -8,8 +8,13 @@ export type Theme = 'light' | 'dark';
 
 const KEY = 'cf-theme';
 
-/** Цвета шапки/фона Telegram — совпадают с токенами --c-bg. */
-const TG_COLORS: Record<Theme, string> = { light: '#FBF8F3', dark: '#1B1613' };
+/**
+ * Цвета шапки и фона, которые приложение отдаёт Telegram. Обязаны совпадать
+ * с токеном --c-bg в styles/index.css: иначе шапка клиента и фон Mini App
+ * расходятся на пару тонов и по краю экрана видна чужая полоса.
+ * Раньше здесь лежали цвета от прошлой палитры — расхождение и было.
+ */
+const TG_COLORS: Record<Theme, string> = { light: '#EDECEA', dark: '#131311' };
 
 export function currentTheme(): Theme {
   const saved = localStorage.getItem(KEY);

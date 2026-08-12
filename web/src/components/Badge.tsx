@@ -9,8 +9,12 @@ import { IconLeaf } from './icons';
 export default function Badge({ variant, label }: BadgeSpec) {
   return (
     <span className={`badge badge-${variant}`}>
-      {variant === 'season' && <IconLeaf size={11} />}
-      {label}
+      {/* Плашка скошена, содержимое возвращается в вертикаль: иначе буквы
+          едут вместе с ней и читаются как случайный курсив. */}
+      <span className="badge-in">
+        {variant === 'season' && <IconLeaf size={11} />}
+        {label}
+      </span>
     </span>
   );
 }

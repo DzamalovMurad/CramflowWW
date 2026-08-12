@@ -29,7 +29,7 @@ const c = content.checkout;
 
 const inputBase =
   'w-full min-h-[48px] rounded-input border bg-surface px-4 py-3 text-[15px] text-ink outline-none transition-all duration-200 placeholder:text-muted';
-const inputOk = `${inputBase} border-line focus:border-accent focus:shadow-[0_0_10px_rgba(128,255,0,0.2)]`;
+const inputOk = `${inputBase} border-line focus:border-accent focus:shadow-[0_0_10px_rgba(214, 243, 47, 0.2)]`;
 const inputBad = `${inputBase} border-red-500 focus:border-red-500`;
 
 type DateMode = 'today' | 'tomorrow' | 'other';
@@ -464,7 +464,7 @@ export default function Checkout() {
 
               <Field label={c.promo}>
                 {promo ? (
-                  <div className="flex min-h-[48px] items-center justify-between rounded-input border border-accent/50 bg-surface px-4 shadow-[0_0_10px_rgba(128,255,0,0.12)]">
+                  <div className="flex min-h-[48px] items-center justify-between rounded-input border border-accent/50 bg-surface px-4 shadow-[0_0_10px_rgba(214, 243, 47, 0.12)]">
                     <span className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-[0.06em]">
                       <span className="h-1.5 w-1.5 rounded-full bg-accent" />
                       {promo.code} <span className="text-accent-2">−{promoLabel(promo)}</span>

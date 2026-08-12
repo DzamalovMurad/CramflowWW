@@ -8,19 +8,31 @@
    Шрифтовые файлы — public/fonts (подключены в index.html).
    ============================================================ */
 :root {
-  /* Палитра (светлая тема) — энергичный неон на чистом фоне */
-  --c-bg: #F1F1EE; /* светлый нейтральный фон */
+  /* Палитра (светлая тема): кислотный чартрез на near-black, фон нейтральный.
+     Контрасты проверены: текст на фоне 14.8:1, чёрный на чартрезе 13.9:1 —
+     плашка читается и на солнце, и в тёмном вагоне метро. */
+  --c-bg: #EDECEA; /* светлый нейтральный фон */
   --c-surface: #FFFFFF; /* карточки, поверхности */
-  --c-tile: #ECECE8; /* плитки под фото, поля форм, вторичные кнопки */
-  --c-text: #0E0F0C; /* основной текст — почти чёрный */
-  --c-muted: #86867E; /* вторичный текст */
-  --c-border: #E6E6E1; /* тонкие линии */
-  --c-accent: #83F70E; /* неоновый лайм (мягче #80FF00 на 2–3%) */
-  --c-accent-2: #3C7300; /* тёмный лайм для текста на светлом фоне (контраст AA) */
-  --c-on-accent: #0E0F0C; /* чёрный текст на неоновых плашках */
+  --c-tile: #E3E2DE; /* плитки под фото, поля форм, вторичные кнопки */
+  --c-text: #1A1A18; /* основной текст — near-black */
+  --c-muted: #6B6B63; /* вторичный текст, 4.55:1 — читается, а не угадывается */
+  --c-border: #DDDCD6; /* тонкие линии */
+  --c-accent: #D6F32F; /* чартрез — единственный акцент во всём интерфейсе */
+  --c-accent-2: #4E6B00; /* тёмный чартрез для текста на светлом (5.2:1) */
+  --c-on-accent: #1A1A18; /* near-black на чартрезовых плашках */
   /* Акцентный текст на инвертированной поверхности (bg-ink): в светлой теме
-     она тёмная — нужен яркий лайм; в тёмной становится светлой — нужен тёмный. */
-  --c-accent-on-ink: #9DFF33;
+     она тёмная — нужен яркий чартрез; в тёмной становится светлой — нужен тёмный. */
+  --c-accent-on-ink: #D6F32F;
+
+  /* Цвета бейджей намеренно не участвуют в смене темы: плашка лежит поверх
+     фотографии, а фотография одна и та же в обоих режимах. Раньше плашка
+     строилась от --c-text — в тёмной теме она становилась белой, и чартрез
+     на ней переставал читаться. */
+  --badge-ink: #1A1A18;
+  --badge-on-ink: #EDECEA;
+  --badge-accent: #D6F32F;
+  --badge-season: #9A5518;
+  --badge-on-season: #FFF7EF;
   /* Сезонный акцент (кампания «к 1 сентября») — тёплая охра ранней осени.
      Используется ТОЛЬКО сезонной плашкой, основную палитру не трогает. */
   --c-season: #9A5518;
@@ -58,33 +70,33 @@
   --shadow-float: 0 6px 20px -6px rgba(20, 20, 14, 0.14);
 
   /* Акцентная кнопка/плашка */
-  --accent-shadow: 0 8px 20px -8px rgba(131, 247, 14, 0.5);
+  --accent-shadow: 0 8px 20px -8px rgba(214, 243, 47, 0.5);
 
   /* Тон фонового свечения (очень мягкое, статичное — без нагрузки) */
-  --glow: rgba(131, 247, 14, 0.06);
+  --glow: rgba(214, 243, 47, 0.06);
   --grain-opacity: 0.02;
 }
 
 /* Ночная тема — «неон в темноте»: глубокий графит с лаймовыми акцентами */
 :root[data-theme='dark'] {
-  --c-bg: #0C0D0A;
-  --c-surface: #161813;
-  --c-tile: #1E211A;
-  --c-text: #F2F4EC;
-  --c-muted: #9A9E90;
-  --c-border: #282C21;
-  --c-accent: #8BFF1F; /* чуть ярче на тёмном */
-  --c-accent-2: #B4FF5C; /* лаймовый текст на тёмном */
-  --c-on-accent: #0C0D0A;
-  --c-accent-on-ink: #3F7D00; /* bg-ink здесь светлый — нужен тёмный лайм */
+  --c-bg: #131311;
+  --c-surface: #1C1C19;
+  --c-tile: #232320;
+  --c-text: #EDECEA;
+  --c-muted: #97968C; /* 6.3:1 на тёмном фоне */
+  --c-border: #2E2E29;
+  --c-accent: #D6F32F; /* тот же чартрез: на тёмном он и так звенит */
+  --c-accent-2: #DFF75B; /* чартрезовый текст на тёмном */
+  --c-on-accent: #131311;
+  --c-accent-on-ink: #4E6B00; /* bg-ink здесь светлый — нужен тёмный чартрез */
   --c-season: #E8A76A; /* на графите охра должна быть светлее */
   --c-season-soft: rgba(232, 167, 106, 0.12);
   --c-season-line: rgba(232, 167, 106, 0.28);
   --c-season-on: #17130E;
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 14px 34px -16px rgba(0, 0, 0, 0.7);
   --shadow-float: 0 8px 24px -8px rgba(0, 0, 0, 0.6);
-  --accent-shadow: 0 8px 24px -8px rgba(139, 255, 31, 0.35);
-  --glow: rgba(139, 255, 31, 0.07);
+  --accent-shadow: 0 8px 24px -8px rgba(214, 243, 47, 0.35);
+  --glow: rgba(214, 243, 47, 0.07);
   --grain-opacity: 0.035;
 }
 
@@ -133,13 +145,12 @@ body {
    утилитами по месту: иначе через месяц в проекте снова девять разных
    заголовков и всё жирное. */
 
-/* Брендовая фраза: Unbounded, жирное начертание, крупный кегль.
-   Регистр не трогаем — заглавная буква здесь и создаёт ощущение марки.
-   Трекинг отрицательный: у широкой гарнитуры дефолтные пробелы между
-   знаками разваливают строку. */
+/* Брендовая фраза: Unbounded Black, крупный кегль. Регистр не трогаем —
+   заглавная буква здесь и создаёт ощущение марки. Трекинг отрицательный:
+   у широкой гарнитуры в весе 900 дефолтные пробелы разваливают строку. */
 .display {
   font-family: var(--font-display);
-  font-weight: 700;
+  font-weight: 900;
   font-size: var(--t-hero);
   letter-spacing: -0.03em;
   line-height: 1.14;
@@ -148,26 +159,40 @@ body {
 /* Название букета и другие крупные заголовки-«вещи». */
 .title {
   font-family: var(--font-display);
-  font-weight: 700;
+  font-weight: 900;
   font-size: var(--t-title);
   letter-spacing: -0.03em;
   line-height: 1.2;
 }
 
-/* Функциональный заголовок секции (H2). */
+/* Функциональный заголовок секции (H2). Скошенная чартрезовая засечка под
+   ним — единственная графика в потоке контента: она задаёт ритм разделам,
+   не залезая на фотографии. */
 .heading {
+  position: relative;
   font-family: var(--font-display);
-  font-weight: 700;
+  font-weight: 900;
   font-size: var(--t-section);
   letter-spacing: -0.03em;
   line-height: 1.25;
+  padding-bottom: 7px;
+}
+.heading::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 26px;
+  height: 4px;
+  background: var(--c-accent);
+  transform: skewX(-9deg);
 }
 
 /* Логотип. Самый тяжёлый вес — марка должна читаться как знак, а не как
    слово в тексте. Точка после слова остаётся акцентной. */
 .brand {
   font-family: var(--font-display);
-  font-weight: 800;
+  font-weight: 900;
   letter-spacing: -0.04em;
 }
 
@@ -176,7 +201,7 @@ body {
    иначе экран превращается в набор вывесок. */
 .cta {
   font-family: var(--font-display);
-  font-weight: 700;
+  font-weight: 900;
   letter-spacing: -0.02em;
 }
 
@@ -193,12 +218,13 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Цена: полужирный гротеск с моноширинными цифрами — колонки сумм
-   в корзине и заказах выравниваются сами, без табличной вёрстки. */
+/* Цена: дисплейная гарнитура с моноширинными цифрами — колонки сумм
+   в корзине и заказах выравниваются сами, без табличной вёрстки.
+   Вес 800, а не 900: у чисел в Black сливаются 0 и 8 на мелком кегле. */
 .price {
-  font-family: var(--font-body);
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
 }
@@ -321,12 +347,12 @@ body {
 
 /* Усиленный вариант для главного CTA (оформление заказа) */
 .btn-accent-strong {
-  box-shadow: 0 0 20px rgba(128, 255, 0, 0.4);
+  box-shadow: 0 0 20px rgba(214, 243, 47, 0.4);
   transition: transform 0.2s ease, box-shadow 0.3s ease;
 }
 .btn-accent-strong:hover:not(:disabled) {
   transform: scale(1.015);
-  box-shadow: 0 0 28px rgba(128, 255, 0, 0.5);
+  box-shadow: 0 0 28px rgba(214, 243, 47, 0.5);
 }
 .btn-accent-strong:active:not(:disabled) {
   transform: scale(0.97);
@@ -336,7 +362,7 @@ body {
 .fab-add {
   background: var(--c-accent);
   color: var(--c-on-accent);
-  box-shadow: 0 4px 14px -4px rgba(131, 247, 14, 0.6);
+  box-shadow: 0 4px 14px -4px rgba(214, 243, 47, 0.6);
   transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
 }
 .fab-add:active {
@@ -348,64 +374,70 @@ body {
   transition: box-shadow 0.3s ease;
 }
 :root[data-theme='dark'] .neon-glow {
-  box-shadow: 0 0 15px rgba(128, 255, 0, 0.3);
+  box-shadow: 0 0 15px rgba(214, 243, 47, 0.3);
 }
 :root[data-theme='dark'] .neon-glow:active,
 :root[data-theme='dark'] .neon-glow:hover {
-  box-shadow: 0 0 24px rgba(128, 255, 0, 0.5);
+  box-shadow: 0 0 24px rgba(214, 243, 47, 0.5);
 }
 :root[data-theme='dark'] .fab-add {
-  box-shadow: 0 0 15px rgba(128, 255, 0, 0.35);
+  box-shadow: 0 0 15px rgba(214, 243, 47, 0.35);
 }
 :root[data-theme='dark'] .fab-add:active {
-  box-shadow: 0 0 24px rgba(128, 255, 0, 0.55);
+  box-shadow: 0 0 24px rgba(214, 243, 47, 0.55);
 }
 
 /* Бейджи на фото товара */
 /* Бейджи на фото: тёмное полупрозрачное стекло с локальным блюром */
+/* Бейдж — скошенная плашка: прямых углов в акцентной графике нет, наклон
+   даёт скорость, которой не хватало ровным пилюлям. Скос делает контейнер,
+   содержимое возвращается в вертикаль (.badge-in) — иначе буквы едут вместе
+   с плашкой и читаются как курсив.
+   Не полупрозрачное стекло, а плотная заливка: поверх пёстрой фотографии
+   стекло даёт разный контраст на каждом снимке. */
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px 10px;
-  border-radius: 9999px;
-  /* Бейдж — брендовый акцент, поэтому Unbounded. Трекинг вдвое меньше
-     прежнего: широкая гарнитура плюс капс плюс разрядка не помещаются
-     в угол фотографии. */
+  padding: 5px 11px;
+  border-radius: 3px;
+  transform: skewX(-9deg);
   font-family: var(--font-display);
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: 900;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
   line-height: 1;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: var(--badge-ink);
+  color: var(--badge-on-ink);
 }
-.badge-hit {
-  color: #9dff33; /* неон читаем на тёмном стекле в обеих темах */
+.badge-in {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transform: skewX(9deg);
 }
-.badge-sale {
-  color: #ffffff;
-}
-.badge-stock {
-  color: #9dff33;
-}
-/* Сезонная плашка на фото: та же геометрия, что у остальных бейджей,
-   отличается только тёплым осенним тоном (читаем на тёмном стекле в обеих темах). */
-.badge-season {
-  color: #f0b173;
-}
-/* Букет дня — редкая пометка, один товар в сутки: инвертируем плашку,
-   чтобы её нельзя было спутать с обычным бейджем. */
+
+/* Варианты отличаются только цветом заливки: форма у всех одна, иначе
+   плашки начинают спорить между собой, а не сообщать разное. */
+.badge-sale,
 .badge-daily {
-  background: var(--c-accent);
-  color: var(--c-on-accent);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  background: var(--badge-accent);
+  color: var(--badge-ink);
+}
+.badge-hit,
+.badge-stock {
+  background: var(--badge-ink);
+  color: var(--badge-accent);
 }
 .badge-fresh {
-  color: #ffffff;
+  background: var(--badge-ink);
+  color: var(--badge-on-ink);
+}
+/* Сезонная плашка: та же геометрия, отличается только тёплым осенним тоном —
+   кампания не должна выглядеть как постоянная механика магазина. */
+.badge-season {
+  background: var(--badge-season);
+  color: var(--badge-on-season);
 }
 
 /* Сезонная таблетка в ряду быстрых фильтров: геометрия штатной таблетки,
