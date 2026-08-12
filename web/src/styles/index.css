@@ -910,6 +910,12 @@ body {
 }
 /* На тёмной шапке плашка марки сливается с фоном — остаются буквы.
    Это и есть цельный верх: логотип не «наклеен» на полосу, он её часть. */
+/* На главной под шапкой сразу идёт hero того же цвета — граница между ними
+   читается как шов внутри одного массива. MenuHeader используется только
+   на главной, поэтому убираем её там совсем. */
+.app-header-flush {
+  border-bottom: 0;
+}
 .app-header .brand {
   background: transparent;
   padding-left: 0;
@@ -938,4 +944,68 @@ body {
   border-radius: 9px;
   background: var(--c-accent);
   color: var(--c-on-accent);
+}
+
+/* ─── Первый экран ───────────────────────────────────────────
+   Продолжение тёмной шапки: без отступа сверху и без собственной границы,
+   чтобы шапка и заявление читались одним массивом. Скругление снизу
+   закрывает массив, дальше идёт светлый контент. */
+.hero {
+  background: var(--badge-ink);
+  color: var(--badge-on-ink);
+  padding: 22px 20px 26px;
+  border-radius: 0 0 26px 26px;
+}
+.hero-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--badge-accent);
+}
+.hero-label::before {
+  content: '';
+  width: 16px;
+  height: 3px;
+  background: var(--badge-accent);
+  transform: skewX(-9deg);
+}
+.hero-title {
+  margin-top: 12px;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: var(--t-hero);
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+  /* Переносы задаёт сама фраза, а не ширина экрана: на 360px заголовок
+     не должен разваливаться на четыре обрубка. */
+  text-wrap: balance;
+}
+.hero-sub {
+  margin-top: 10px;
+  max-width: 19rem;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(237, 236, 234, 0.62);
+}
+.hero-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 50px;
+  margin-top: 18px;
+  padding: 0 28px;
+  border-radius: var(--radius-button);
+  background: var(--badge-accent);
+  color: var(--badge-ink);
+  font-size: 14px;
+  box-shadow: 0 8px 22px -10px rgba(214, 243, 47, 0.6);
+  transition: transform 0.15s ease;
+}
+.hero-cta:active {
+  transform: scale(0.98);
 }

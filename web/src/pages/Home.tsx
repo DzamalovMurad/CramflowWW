@@ -4,6 +4,7 @@ import CategoryChips from "../components/CategoryChips";
 import FilterPills from "../components/FilterPills";
 import ProductCardView from "../components/ProductCardView";
 import DealsRibbon, { pickDeals } from "../components/DealsRibbon";
+import HomeHero from "../components/HomeHero";
 import { Link } from "react-router-dom";
 import {
   fetchAllProducts,
@@ -132,6 +133,9 @@ export default function Home() {
   return (
     <div className="pb-32">
       <MenuHeader />
+
+      {/* ПЕРВЫЙ ЭКРАН — заявление, продолжающее тёмную шапку */}
+      <HomeHero />
 
       {/* АКТИВНЫЙ ЗАКАЗ — статус на виду, без вопросов менеджеру */}
       {activeOrder && (

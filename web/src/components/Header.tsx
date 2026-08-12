@@ -14,7 +14,7 @@ interface SearchProps {
     Не sticky — при скролле сверху остаются только фильтры (как у Bunch). */
 export function MenuHeader() {
   return (
-    <header className="app-header px-4 pb-3 pt-2.5">
+    <header className="app-header app-header-flush px-4 pb-3 pt-2.5">
       <div className="relative flex h-10 items-center justify-center">
         <Link
           to="/"
