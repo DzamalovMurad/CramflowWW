@@ -26,6 +26,8 @@ type TelegramWebApp = {
   };
   setHeaderColor?: (color: string) => void;
   setBackgroundColor?: (color: string) => void;
+  /** Открывает t.me-ссылку внутри Telegram, не выбрасывая в браузер. */
+  openTelegramLink?: (url: string) => void;
 };
 
 export function tg(): TelegramWebApp | undefined {
@@ -56,4 +58,18 @@ export function haptic(style: 'light' | 'medium' | 'success' = 'light') {
   if (!h) return;
   if (style === 'success') h.notificationOccurred('success');
   else h.impactOccurred(style);
+}
+
+/**
+ * Переход по t.me-ссылке. Внутри Telegram обязателен openTelegramLink:
+ * обычный переход по href выбрасывает человека в браузер, а из браузера
+ * он возвращается уже не в Mini App. Вне Telegram — обычная новая вкладка.
+ */
+export function openTelegramLink(url: string) {
+  const app = tg();
+  if (app?.openTelegramLink) {
+    app.openTelegramLink(url);
+    return;
+  }
+  window.open(url, '_blank', 'noopener,noreferrer');
 }

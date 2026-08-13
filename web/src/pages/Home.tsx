@@ -5,6 +5,7 @@ import FilterPills from "../components/FilterPills";
 import ProductCardView from "../components/ProductCardView";
 import DealsRibbon, { pickDeals } from "../components/DealsRibbon";
 import HomeHero from "../components/HomeHero";
+import ChannelPromo from "../components/ChannelPromo";
 import { Link } from "react-router-dom";
 import {
   fetchAllProducts,
@@ -136,6 +137,9 @@ export default function Home() {
 
       {/* ПЕРВЫЙ ЭКРАН — заявление, продолжающее тёмную шапку */}
       <HomeHero />
+
+      {/* ПЕРЕХОД В КАНАЛ — сразу под hero, пока внимание ещё наверху */}
+      <ChannelPromo />
 
       {/* АКТИВНЫЙ ЗАКАЗ — статус на виду, без вопросов менеджеру */}
       {activeOrder && (
