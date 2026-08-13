@@ -1011,64 +1011,94 @@ body {
 }
 
 /* ─── Плашка перехода в канал ────────────────────────────────
-   Кислотный блок сразу под чёрным hero: чёрное → кислотное читается как
-   удар, два тёмных блока подряд слиплись бы в одну массу. */
+   Постерная вёрстка вместо плоской заливки: чёрная база, кислотный клин
+   по диагонали, капс двумя цветами. Плоский лаймовый прямоугольник читался
+   как баннер — глубину даёт клин и разный цвет строк, без картинок,
+   градиентов и анимаций.
+
+   Цвета фиксированы вне темы: плашка лежит рядом с чёрным hero и обязана
+   выглядеть одинаково днём и ночью. */
 .promo {
   position: relative;
   display: block;
   width: calc(100% - 32px);
   margin: 14px 16px 0;
-  padding: 16px 46px 16px 18px;
+  padding: 15px 18px 17px;
   text-align: left;
   border-radius: var(--radius-card);
-  background: var(--badge-accent);
-  color: var(--badge-ink);
-  box-shadow: 0 10px 26px -14px rgba(214, 243, 47, 0.85);
-  transition: transform 0.15s ease;
+  background: var(--badge-ink);
+  color: var(--badge-on-ink);
   overflow: hidden;
+  transition: transform 0.15s ease;
 }
 .promo:active {
   transform: scale(0.985);
 }
-/* Скошенная тёмная метка — тот же язык, что у бейджей на карточках. */
-.promo-tag {
-  display: inline-flex;
-  padding: 4px 9px;
-  border-radius: 3px;
-  transform: skewX(-9deg);
-  background: var(--badge-ink);
-  color: var(--badge-accent);
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-size: 9px;
-  letter-spacing: 0.1em;
+/* Клин: широкая скошенная полоса справа. Она уходит за края блока —
+   так это читается как срез плаката, а не как фигура внутри рамки. */
+.promo-wedge {
+  position: absolute;
+  top: -40%;
+  right: -34%;
+  width: 44%;
+  height: 180%;
+  background: var(--badge-accent);
+  transform: skewX(-15deg);
+}
+.promo-body {
+  position: relative; /* над клином */
+  display: block;
+  /* Колонка не заходит на клин: строка «первым забираешь» упиралась в него
+     и обрезалась. Запас считан по самой длинной строке на 360px. */
+  max-width: calc(100% - 54px);
+}
+.promo-meta {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  line-height: 1;
+  color: var(--badge-accent);
 }
 .promo-title {
   display: block;
-  margin-top: 10px;
+  margin-top: 9px;
   font-family: var(--font-display);
   font-weight: 900;
-  font-size: 17px;
-  letter-spacing: -0.035em;
-  line-height: 1.15;
-  text-wrap: balance;
+  font-size: 16px;
+  letter-spacing: -0.045em;
+  line-height: 1.05;
+  text-transform: uppercase;
+  /* Переноса нет намеренно — строки разбиты вручную. Но и запрета нет:
+     если текст в content.ts станет длиннее, строка перенесётся, а не уедет
+     под клин и не обрежется молча. */
+}
+/* Две строки — два цвета: приём постера, который держит внимание на второй,
+   смысловой половине фразы. */
+.promo-line-1 {
+  display: block;
+  color: var(--badge-on-ink);
+}
+.promo-line-2 {
+  display: block;
+  color: var(--badge-accent);
 }
 .promo-note {
   display: block;
-  margin-top: 6px;
+  margin-top: 9px;
   font-size: 12px;
-  line-height: 1.4;
-  color: rgba(26, 26, 24, 0.62);
+  line-height: 1.35;
+  color: rgba(237, 236, 234, 0.55);
 }
+/* Стрелка сидит на клине — поэтому она тёмная, а не светлая. */
 .promo-arrow {
   position: absolute;
-  top: 50%;
-  right: 18px;
-  transform: translateY(-50%);
+  right: 17px;
+  bottom: 15px;
   font-family: var(--font-display);
   font-weight: 900;
-  font-size: 20px;
+  font-size: 22px;
   line-height: 1;
+  color: var(--badge-ink);
 }

@@ -8,11 +8,12 @@ const c = content.home;
  *
  * Не кнопка «перейти» и не просьба подписаться: причина зайти лежит в самой
  * фразе — свежую поставку разбирают за день, и кто увидел её первым, тот её
- * и забрал. Плашка кликабельна целиком.
+ * и забрал. Кликабелен весь блок.
  *
- * Чартрез на весь блок: hero над ним чёрный, и второй тёмный блок подряд
- * слился бы с ним в одну массу. Цвета фиксированы вне темы, как у hero
- * и бейджей, — плашка обязана выглядеть одинаково днём и ночью.
+ * Постерная вёрстка: чёрная база, кислотный клин по диагонали, капс двумя
+ * цветами и мелкая мета-строка. Плоская заливка, которая была здесь раньше,
+ * читалась как баннер; клин и разные цвета строк дают глубину без картинок
+ * и анимаций. Цвета фиксированы вне темы, как у hero и бейджей.
  */
 export default function ChannelPromo() {
   return (
@@ -24,12 +25,18 @@ export default function ChannelPromo() {
       }}
       className="promo"
     >
-      <span className="promo-tag">{c.channelTag}</span>
-      <span className="promo-title">{c.channelTitle}</span>
-      <span className="promo-note">{c.channelNote}</span>
+      <span className="promo-wedge" aria-hidden />
+      <span className="promo-body">
+        <span className="promo-meta">{c.channelMeta}</span>
+        <span className="promo-title">
+          <span className="promo-line-1">{c.channelTitleTop}</span>
+          <span className="promo-line-2">{c.channelTitleBottom}</span>
+        </span>
+        <span className="promo-note">{c.channelNote}</span>
+      </span>
       {/* Стрелка вместо слова «перейти»: направление понятно без подписи. */}
       <span aria-hidden className="promo-arrow">
-        →
+        ↗
       </span>
     </button>
   );
